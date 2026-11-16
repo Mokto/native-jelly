@@ -384,21 +384,20 @@ impl<'a> Jf<'a> {
     /// Which `IncludeItemTypes` a section listing names: the explicit `type=` filter, else the
     /// section's primary type (Movie for a movie library, Series for TV).
     fn section_type(&self, section_guid: &str, filters: &[(String, String)]) -> &'static str {
-        if let Some(t) = filters.iter().find(|(k, _)| k == "type").and_then(|(_, v)| v.parse().ok())
-            .and_then(convert::jf_type_of_number)
-        {
+        let filter = filters.iter().find(|(k, _)| k == "type").and_then(|(_, v)| v.parse().ok())
+            .and_then(convert::jf_type_of_number);
+        if let Some(t) = filter {
             return t;
         }
-        match self.view_kind(section_guid).as_deref() {
-            Some("tvshows") => "Series",
-            _ => "Movie",
-        }
+        convert::listing_item_types(None, self.view(section_guid).as_ref())
     }
 
-    fn view_kind(&self, section_guid: &str) -> Option<String> {
+    /// The library view `section_guid` names, or `None` when `/UserViews` could not be read or no
+    /// longer lists it.
+    fn view(&self, section_guid: &str) -> Option<BaseItemDto> {
         let uid = self.user_id()?;
         let views: QueryResult<BaseItemDto> = self.get(&Q::new("/UserViews").s("userId", &uid).build())?;
-        views.items.into_iter().find(|v| ids::normalize(&v.id) == section_guid).and_then(|v| v.collection_type)
+        views.items.into_iter().find(|v| ids::normalize(&v.id) == section_guid)
     }
 
     /// One page of a library grid: `/Items` under the library, typed, sorted, filtered.
@@ -676,7 +675,7 @@ impl<'a> Jf<'a> {
     pub fn library_shelves(&self, section_key: i64, count: i64) -> Option<Vec<JfShelf>> {
         let guid = ids::guid_of(section_key)?;
         let uid = self.user_id()?;
-        let tv = self.view_kind(&guid).as_deref() == Some("tvshows");
+        let tv = self.view(&guid).is_some_and(|v| v.collection_type.as_deref() == Some("tvshows"));
         let family = if tv { "tv" } else { "movie" };
         let shelf = |identifier: String, title: &str, key: String, items: Vec<BaseItemDto>| JfShelf {
             identifier, title: title.into(), key, section: section_key, library: String::new(), items,

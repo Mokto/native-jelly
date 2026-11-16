@@ -34,6 +34,40 @@ pub fn kind(jf_type: &str) -> &'static str {
     }
 }
 
+/// An item's kind. A plain `Video` or `MusicVideo` (what Home Videos and Music Videos libraries
+/// hold, and the odd file of a mixed one) opens and plays like a film; one with an `ExtraType`
+/// (a trailer, a featurette) is an extra and stays a clip.
+fn item_kind(it: &BaseItemDto) -> &'static str {
+    match it.kind.as_str() {
+        "Video" | "MusicVideo" if it.extra_type.is_none() => "movie",
+        other => kind(other),
+    }
+}
+
+/// What a mixed ("Mixed Movies and Shows") library lists: films, series and plain videos.
+pub const MIXED_ITEM_TYPES: &str = "Movie,Series,Video";
+
+/// What a library view holds, as `IncludeItemTypes`, or `None` for a view this client does not
+/// browse. A mixed library is a `CollectionFolder` with no `CollectionType` (issue #35); Home Videos
+/// and Music Videos hold `Video` / `MusicVideo` items, never `Movie` (issue #38).
+pub fn view_item_types(view: &BaseItemDto) -> Option<&'static str> {
+    match view.collection_type.as_deref() {
+        Some("movies") => Some("Movie"),
+        Some("tvshows") => Some("Series"),
+        Some("homevideos") => Some("Video"),
+        Some("musicvideos") => Some("MusicVideo"),
+        None if view.kind == "CollectionFolder" => Some(MIXED_ITEM_TYPES),
+        _ => None,
+    }
+}
+
+/// What a library listing asks for: an explicit `type=` filter, else what the library holds. A
+/// view that could not be read (`None`: the request failed, or the library is gone) lists films as
+/// it always did; it is never taken for a mixed library.
+pub fn listing_item_types(filter: Option<&'static str>, view: Option<&BaseItemDto>) -> &'static str {
+    filter.or_else(|| view.and_then(view_item_types)).unwrap_or("Movie")
+}
+
 /// The inverse for `IncludeItemTypes`.
 pub fn jf_type(plex_kind: &str) -> Option<&'static str> {
     Some(match plex_kind {
@@ -378,7 +412,7 @@ pub fn portable_guid(it: &BaseItemDto) -> String {
 /// One item → `Metadata`. `section_id` stamps `librarySectionID` when the caller knows which
 /// library the row came from (0 otherwise — an un-gateable row, see `pms::feeds_home_item`).
 pub fn item(it: &BaseItemDto, section_id: i64) -> Metadata {
-    let k = kind(&it.kind);
+    let k = item_kind(it);
     let rk = ids::rating_key(&it.id);
     let ud = it.user_data.clone().unwrap_or_default();
     let duration = ticks::to_ms(it.run_time_ticks.unwrap_or(0));
@@ -502,10 +536,9 @@ pub fn markers(segs: &[MediaSegmentDto], duration_ms: i64) -> Vec<Marker> {
 
 /// A user view → `LibrarySection`, or `None` for a view this client does not browse.
 pub fn section(view: &BaseItemDto) -> Option<LibrarySection> {
-    let kind = match view.collection_type.as_deref() {
-        Some("movies") | Some("homevideos") | Some("musicvideos") => "movie",
-        Some("tvshows") => "show",
-        _ => return None,
+    let kind = match view_item_types(view)? {
+        "Series" => "show",
+        _ => "movie",
     };
     Some(LibrarySection {
         key: ids::intern(&view.id).to_string(),
@@ -705,6 +738,45 @@ mod tests {
         assert_eq!(section(&v("tvshows")).unwrap().kind, "show");
         assert!(section(&v("music")).is_none());
         assert!(section(&v("boxsets")).is_none());
+    }
+
+    /// Issue #35: a "Mixed Movies and Shows" library is a `CollectionFolder` with no
+    /// `CollectionType`, and it was dropped from the library list.
+    #[test]
+    fn a_mixed_library_is_listed_and_other_untyped_views_are_not() {
+        let view = |kind: &str| BaseItemDto { id: "eeeeeeeeeeeee000000000000000000f".into(), name: "Mixed".into(),
+            kind: kind.into(), collection_type: None, ..Default::default() };
+        let mixed = section(&view("CollectionFolder")).expect("a mixed library is browsable");
+        assert_eq!(mixed.kind, "movie");
+        assert_eq!(mixed.title, "Mixed");
+        assert!(section(&view("UserView")).is_none(), "an untyped view that is not a library stays out");
+    }
+
+    #[test]
+    fn a_listing_asks_for_what_the_library_holds() {
+        let view = |kind: &str, t: Option<&str>| BaseItemDto { kind: kind.into(),
+            collection_type: t.map(Into::into), ..Default::default() };
+        let lists = |v: &BaseItemDto| listing_item_types(None, Some(v));
+        assert_eq!(lists(&view("CollectionFolder", Some("movies"))), "Movie");
+        assert_eq!(lists(&view("CollectionFolder", Some("tvshows"))), "Series");
+        assert_eq!(lists(&view("CollectionFolder", Some("homevideos"))), "Video");
+        assert_eq!(lists(&view("CollectionFolder", Some("musicvideos"))), "MusicVideo");
+        assert_eq!(lists(&view("CollectionFolder", None)), "Movie,Series,Video");
+        assert_eq!(listing_item_types(None, None), "Movie", "an unread view is not a mixed library");
+        assert_eq!(listing_item_types(Some("Episode"), Some(&view("CollectionFolder", None))), "Episode",
+            "an explicit type filter wins");
+    }
+
+    /// Issue #38: Home Videos and Music Videos hold `Video` / `MusicVideo` items, which must open
+    /// and play like a film; an extra (a trailer, a featurette) stays a clip.
+    #[test]
+    fn plain_videos_and_music_videos_open_as_films_and_extras_stay_clips() {
+        let it = |kind: &str, extra: Option<&str>| BaseItemDto { id: "c".repeat(32), name: "V".into(),
+            kind: kind.into(), extra_type: extra.map(Into::into), ..Default::default() };
+        assert_eq!(item(&it("Video", None), 0).kind, "movie");
+        assert_eq!(item(&it("MusicVideo", None), 0).kind, "movie");
+        assert_eq!(item(&it("Video", Some("Featurette")), 0).kind, "clip");
+        assert_eq!(item(&it("Trailer", None), 0).kind, "clip");
     }
 
     #[test]

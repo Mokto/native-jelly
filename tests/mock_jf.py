@@ -20,6 +20,9 @@ TOKEN = "mock-jf-token"
 MOVIE_ID = "c" * 32
 SHOW_ID = "d" * 32
 LIBRARY_ID = "e" * 32
+MIXED_ID = "f" * 32
+HOME_VIDEOS_ID = "9" * 32
+VIDEO_ID = "8" * 32
 
 
 def item(iid: str, itype: str, name: str, **extra) -> dict:
@@ -41,7 +44,21 @@ CATALOG = [
     item(LIBRARY_ID, "CollectionFolder", "s11111111", CollectionType="movies"),
     item(MOVIE_ID, "Movie", "s3fa90c12", ProductionYear=2011, PremiereDate="2011-03-14"),
     item(SHOW_ID, "Series", "s8bb12c00", ChildCount=1),
+    item(VIDEO_ID, "Video", "s5d0e7a21"),
 ]
+
+# The libraries /UserViews lists, and what each holds. A "Mixed Movies and Shows" library is a
+# CollectionFolder with NO CollectionType (issue #35); a Home Videos one holds Video items (#38).
+VIEWS = [
+    CATALOG[0],
+    item(MIXED_ID, "CollectionFolder", "s22222222"),
+    item(HOME_VIDEOS_ID, "CollectionFolder", "s33333333", CollectionType="homevideos"),
+]
+CONTENTS = {
+    LIBRARY_ID: [CATALOG[1]],
+    MIXED_ID: [CATALOG[1], CATALOG[2], CATALOG[3]],
+    HOME_VIDEOS_ID: [CATALOG[3]],
+}
 
 
 # The user's configuration: GET /Users/Me serves it and POST /Users/Configuration replaces it
@@ -98,10 +115,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/Localization/Cultures":
             return self._send(200, json_bytes(CULTURES))
         if path == "/UserViews":
-            return self._send(200, json_bytes({"Items": [CATALOG[0]], "TotalRecordCount": 1}))
+            return self._send(200, json_bytes({"Items": VIEWS, "TotalRecordCount": len(VIEWS)}))
         if path == "/Items":
-            movies = [CATALOG[1]]
-            return self._send(200, json_bytes({"Items": movies, "TotalRecordCount": 1}))
+            q = parse_qs(urlparse(self.path).query)
+            rows = CONTENTS.get(q.get("ParentId", [LIBRARY_ID])[0], [])
+            types = q.get("IncludeItemTypes", [""])[0]
+            if types:
+                rows = [r for r in rows if r["Type"] in types.split(",")]
+            return self._send(200, json_bytes({"Items": rows, "TotalRecordCount": len(rows)}))
         if path.startswith("/Items/") and path.endswith("/SpecialFeatures"):
             return self._send(200, json_bytes([]))
         if path.startswith("/Items/") and "/Images/" not in path:
