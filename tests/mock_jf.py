@@ -44,6 +44,30 @@ CATALOG = [
 ]
 
 
+# The user's configuration: GET /Users/Me serves it and POST /Users/Configuration replaces it
+# whole, as the real server does (Settings > Audio & subtitles, jf/preferences.rs).
+CONFIG = {
+    "AudioLanguagePreference": "eng",
+    "PlayDefaultAudioTrack": True,
+    "SubtitleLanguagePreference": "",
+    "SubtitleMode": "Default",
+    "OrderedViews": [],
+    "HidePlayedInLatest": True,
+    "EnableNextEpisodeAutoPlay": True,
+}
+
+CULTURES = [
+    {"Name": "English", "DisplayName": "English", "TwoLetterISOLanguageName": "en",
+     "ThreeLetterISOLanguageName": "eng", "ThreeLetterISOLanguageNames": ["eng"]},
+    {"Name": "French", "DisplayName": "French", "TwoLetterISOLanguageName": "fr",
+     "ThreeLetterISOLanguageName": "fre", "ThreeLetterISOLanguageNames": ["fre", "fra"]},
+    {"Name": "German", "DisplayName": "German", "TwoLetterISOLanguageName": "de",
+     "ThreeLetterISOLanguageName": "ger", "ThreeLetterISOLanguageNames": ["ger", "deu"]},
+    {"Name": "Japanese", "DisplayName": "Japanese", "TwoLetterISOLanguageName": "ja",
+     "ThreeLetterISOLanguageName": "jpn", "ThreeLetterISOLanguageNames": ["jpn"]},
+]
+
+
 def json_bytes(obj) -> bytes:
     return json.dumps(obj).encode()
 
@@ -69,7 +93,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/Users/Me":
             return self._send(200, json_bytes({
                 "Id": USER_ID, "Name": "suser0001", "ServerId": SERVER_ID,
+                "Configuration": CONFIG,
             }))
+        if path == "/Localization/Cultures":
+            return self._send(200, json_bytes(CULTURES))
         if path == "/UserViews":
             return self._send(200, json_bytes({"Items": [CATALOG[0]], "TotalRecordCount": 1}))
         if path == "/Items":
@@ -97,8 +124,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0") or 0)
-        _ = self.rfile.read(length) if length else b""
+        body = self.rfile.read(length) if length else b""
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/Users/Configuration":
+            CONFIG.clear()
+            CONFIG.update(json.loads(body or b"{}"))
+            return self._send(204, b"")
         if path == "/Users/AuthenticateByName":
             return self._send(200, json_bytes({
                 "AccessToken": TOKEN,

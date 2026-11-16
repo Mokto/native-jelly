@@ -8,7 +8,7 @@
 use super::*;
 use nj_base::fontcov::advances::ShippedMeasure as M;
 use nj_platform::i18n::{language_on_this_thread_for_test, SHIPPED};
-use crate::catalog::account::AudioPreferences;
+use crate::jf::preferences::AudioPreferences;
 use crate::route::available_quality_ladder;
 use crate::ui::table::{Section, TableView};
 use nj_machine::machine::Measure;
@@ -91,25 +91,23 @@ fn every_field_readout_and_detail_fits_its_column_in_every_language() {
 
         check_field_section(&format!("{tag} retry row"), &FieldListInputs { show_retry: true, ..audio(None) }, &mut out);
 
-        // Every catalog language as the Audio/Subtitle Language read-out (app data, so judged).
-        let mut prefs = AudioPreferences::default();
-        for l in crate::catalog::languages::LANGUAGES {
-            prefs.stated_language = Some(l.code.to_string());
-            prefs.subtitle_language = Some(l.code.to_string());
-            check_field_section(&format!("{tag} language={}", l.code), &audio(Some(&prefs)), &mut out);
-        }
-        prefs.auto_select_audio = Some(false);
-        check_field_section(&format!("{tag} audio selection off detail"), &audio(Some(&prefs)), &mut out);
+        // A language read-out is the server's name for it (exempt); the empty preference is ours.
+        let mut prefs = AudioPreferences { cultures: std::sync::Arc::new(vec![crate::jf::preferences::Culture {
+            code: "fre".into(), name: "French".into() }]), ..Default::default() };
+        check_field_section(&format!("{tag} no language"), &audio(Some(&prefs)), &mut out);
+        prefs.audio_language = Some("fre".into());
+        prefs.subtitle_language = Some("fre".into());
+        check_field_section(&format!("{tag} language=fre"), &audio(Some(&prefs)), &mut out);
 
         let mut prefs = AudioPreferences::default();
-        for mode in 0..3 {
+        for mode in crate::jf::preferences::SubtitleMode::ALL {
             prefs.subtitle_mode = mode;
-            check_field_section(&format!("{tag} subtitle_mode={mode}"), &audio(Some(&prefs)), &mut out);
+            check_field_section(&format!("{tag} subtitle_mode={mode:?}"), &audio(Some(&prefs)), &mut out);
         }
         let mut prefs = AudioPreferences::default();
-        for forced in 0..4 {
-            prefs.subtitle_forced = forced;
-            check_field_section(&format!("{tag} subtitle_forced={forced}"), &audio(Some(&prefs)), &mut out);
+        for on in [true, false] {
+            prefs.play_default_audio_track = on;
+            check_field_section(&format!("{tag} default_track={on}"), &audio(Some(&prefs)), &mut out);
         }
     }
     crate::ui::table::assert_no_fit_failures(&out);
@@ -129,7 +127,7 @@ fn every_picker_level_fits_its_column_in_every_language() {
             let prefs = AudioPreferences::default();
             let fields: &[PickerKind] = match kind {
                 Kind::Playback => &[PickerKind::Quality, PickerKind::DirectPlay, PickerKind::SubtitleSize, PickerKind::SubtitlePosition, PickerKind::NextEpisode, PickerKind::SkipInterval],
-                Kind::AudioSubtitles => &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles],
+                Kind::AudioSubtitles => &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack],
             };
             for &field in fields {
                 let current = resolve_value(field, Quality::Original, DirectPlayMode::Auto, Some(&prefs));
@@ -175,21 +173,27 @@ fn direct_play_readout_fits_beside_its_label_in_every_language() {
     crate::ui::table::assert_no_fit_failures(&out);
 }
 
-/// The Subtitles row's read-out for the foreign-audio mode names the SUBTITLE language (it once
-/// read as "my language", which sounds like the audio row), and the other two modes keep the
-/// picker's own label. Pinned in every shipped language; the fit sweep above covers the width.
+/// The Subtitles row's read-out for each Jellyfin mode: the foreign-audio (`Smart`) one names the
+/// SUBTITLE language (it once read as "my language", which sounds like the audio row), three modes
+/// use a short form and the other two keep the picker's own label. Pinned in every shipped
+/// language; the fit sweep above covers the width.
 #[test]
 fn the_subtitle_mode_readouts_are_pinned_in_every_language() {
+    use crate::jf::preferences::SubtitleMode;
     for language in SHIPPED {
         let _guard = language_on_this_thread_for_test(language);
         let mut prefs = AudioPreferences::default();
-        let readouts: Vec<String> = (0..3).map(|mode| {
+        let readouts: Vec<String> = SubtitleMode::ALL.into_iter().map(|mode| {
             prefs.subtitle_mode = mode;
             field_readout(PickerKind::SubtitleMode, Quality::Original, DirectPlayMode::Auto, Some(&prefs))
         }).collect();
-        assert_eq!(readouts[0], nj_platform::i18n::msg::settings_audio_manual(), "{}", language.tag());
-        assert_eq!(readouts[1], nj_platform::i18n::msg::settings_audio_foreign_short(), "{}", language.tag());
-        assert_eq!(readouts[2], nj_platform::i18n::msg::settings_audio_always(), "{}", language.tag());
+        assert_eq!(readouts, [
+            nj_platform::i18n::msg::settings_audio_mode_default_short(),
+            nj_platform::i18n::msg::settings_audio_foreign_short(),
+            nj_platform::i18n::msg::settings_audio_always(),
+            nj_platform::i18n::msg::settings_audio_only_forced_short(),
+            nj_platform::i18n::msg::settings_audio_manual(),
+        ], "{}", language.tag());
         let want = match language.tag() {
             "en" => "When audio isn't in the subtitle language",
             "es" => "Audio fuera del idioma de subtítulos",
@@ -219,7 +223,7 @@ fn every_explanation_under_a_title_fits_the_column_in_every_language() {
     let layout = RouteLayout::screen();
     let all_fields = [PickerKind::Quality, PickerKind::DirectPlay, PickerKind::SubtitleSize, PickerKind::SubtitlePosition,
         PickerKind::NextEpisode, PickerKind::SkipInterval, PickerKind::AudioLanguage, PickerKind::SubtitleMode,
-        PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles];
+        PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack];
     let mut out = Vec::new();
     for language in SHIPPED {
         let _guard = language_on_this_thread_for_test(language);
@@ -279,7 +283,7 @@ fn each_local_picker_has_its_own_explanation_in_every_language() {
             assert_eq!(forced(Subject::Picker(field)), copies[i], "{tag} {field:?} is untouched by Force");
         }
         // The account pickers keep the account note under every mode.
-        for field in [PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles] {
+        for field in [PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack] {
             assert_eq!(copy_text(Subject::Picker(field), "", DirectPlayMode::Forced), nj_platform::i18n::msg::settings_audio_account_note(), "{tag} {field:?}");
         }
         // A status wins, with the Force note appended only where Force matters.

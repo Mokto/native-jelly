@@ -99,7 +99,7 @@ The bullets below are the design, written before the migration. `family::table_f
   never enters ui/ (ui/CLAUDE.md layer rule). The family (`RouteSurface::forward`/`request`,
   settings.rs ~252-330) stays the only stack executor.
 - Pickers become stack pages: `SettingsPage::Picker(PickerKind)` for Quality, DirectPlay,
-  AudioLanguage, SubtitleMode, SubtitleLanguage, ForcedSubtitles; built from a Form of `Choice`
+  AudioLanguage, SubtitleMode, SubtitleLanguage, DefaultAudioTrack; built from a Form of `Choice`
   rows exactly like the Language page. The picker page OWNS its transaction: reads the account
   snapshot, runs the Force confirmation, submits the write (same PMS/session paths + ticket),
   shows busy/retry, pops on a durable receipt; picking the already-checked value pops with no

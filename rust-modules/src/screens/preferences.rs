@@ -1,4 +1,4 @@
-//! Playback defaults and Plex account preferences on the shared Settings table: the two field-list
+//! Playback defaults and Jellyfin user preferences on the shared Settings table: the two field-list
 //! pages (Playback, Audio & Subtitles) and, in [`picker`], the choice list each field pushes.
 //!
 //! **One navigation architecture.** A field row is a `Nav` item of the page's [`FormTable`]:
@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::mpsc::{self, Receiver};
-use crate::catalog::account::{AudioPreferences, PreferenceError, PreferenceRequest, PreferenceSnapshot, PreferenceUpdate};
+use crate::jf::preferences::{AudioPreferences, PreferenceError, PreferenceRequest, PreferenceSnapshot, PreferenceUpdate, SubtitleMode};
 use crate::route::{DirectPlayMode, NextEpisodeMode, Quality, SkipInterval, InstantDpadSeeking, EpisodeNavigation, SubtitlePosition, SubtitleSize};
 use crate::ui::form::{Form, FormId, FormSection, FormTable, RowKey, RowKind};
 use crate::ui::frame::Budget;
@@ -49,7 +49,7 @@ impl PickerKind {
         Self::EpisodeNavigation => nj_platform::i18n::msg::settings_playback_episode_navigation(),
         Self::SkipInterval => nj_platform::i18n::msg::settings_playback_skip_interval(),
         Self::AudioLanguage => nj_platform::i18n::msg::settings_audio_language(), Self::SubtitleMode => nj_platform::i18n::msg::settings_audio_subtitles(),
-        Self::SubtitleLanguage => nj_platform::i18n::msg::settings_audio_subtitle_language(), Self::ForcedSubtitles => nj_platform::i18n::msg::settings_audio_forced_subtitles(),
+        Self::SubtitleLanguage => nj_platform::i18n::msg::settings_audio_subtitle_language(), Self::DefaultAudioTrack => nj_platform::i18n::msg::settings_audio_default_track(),
     }}
     /// What this field's picker says about it under its title. The four account fields share the
     /// account note (it is about where those values are saved); each local one has its own.
@@ -62,13 +62,13 @@ impl PickerKind {
         Self::InstantDpadSeeking => nj_platform::i18n::msg::settings_playback_instant_dpad_seeking_copy(),
         Self::EpisodeNavigation => nj_platform::i18n::msg::settings_playback_episode_navigation_copy(),
         Self::SkipInterval => nj_platform::i18n::msg::settings_playback_skip_interval_copy(),
-        Self::AudioLanguage | Self::SubtitleMode | Self::SubtitleLanguage | Self::ForcedSubtitles => nj_platform::i18n::msg::settings_audio_account_note(),
+        Self::AudioLanguage | Self::SubtitleMode | Self::SubtitleLanguage | Self::DefaultAudioTrack => nj_platform::i18n::msg::settings_audio_account_note(),
     }}
     /// The field-list page this field belongs to.
     fn kind(self) -> Kind {
         match self {
             Self::Quality | Self::DirectPlay | Self::SubtitleSize | Self::SubtitlePosition | Self::NextEpisode | Self::SkipInterval | Self::InstantDpadSeeking | Self::EpisodeNavigation => Kind::Playback,
-            Self::AudioLanguage | Self::SubtitleMode | Self::SubtitleLanguage | Self::ForcedSubtitles => Kind::AudioSubtitles,
+            Self::AudioLanguage | Self::SubtitleMode | Self::SubtitleLanguage | Self::DefaultAudioTrack => Kind::AudioSubtitles,
         }
     }
 }
@@ -83,7 +83,7 @@ impl Kind {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Value { Quality(Quality), DirectPlay(DirectPlayMode), SubtitleSize(SubtitleSize), SubtitlePosition(SubtitlePosition), NextEpisode(NextEpisodeMode), SkipInterval(SkipInterval), EpisodeNavigation(EpisodeNavigation), InstantDpadSeeking(InstantDpadSeeking), Language(String), Mode(i64), Forced(i64) }
+enum Value { Quality(Quality), DirectPlay(DirectPlayMode), SubtitleSize(SubtitleSize), SubtitlePosition(SubtitlePosition), NextEpisode(NextEpisodeMode), SkipInterval(SkipInterval), EpisodeNavigation(EpisodeNavigation), InstantDpadSeeking(InstantDpadSeeking), Language(String), Mode(SubtitleMode), DefaultTrack(bool) }
 
 /// The hashed half of a transaction: what the page shows while a load or save is in flight.
 struct Io { busy: bool, status: String }
@@ -282,7 +282,7 @@ impl FormId for RowId {
             Self::Field(PickerKind::Quality | PickerKind::AudioLanguage) => 0,
             Self::Field(PickerKind::DirectPlay | PickerKind::SubtitleMode) => 1,
             Self::Field(PickerKind::SubtitleSize | PickerKind::SubtitleLanguage) => 2,
-            Self::Field(PickerKind::SubtitlePosition | PickerKind::ForcedSubtitles) => 3,
+            Self::Field(PickerKind::SubtitlePosition | PickerKind::DefaultAudioTrack) => 3,
             Self::Field(PickerKind::NextEpisode) => 4,
             Self::Field(PickerKind::SkipInterval) => 5,
             Self::Field(PickerKind::InstantDpadSeeking) => 7,
@@ -395,7 +395,7 @@ impl PreferencesPage {
 fn fields_of(inputs: &FieldListInputs<'_>) -> &'static [PickerKind] {
     match inputs.kind {
         Kind::Playback => &[PickerKind::Quality, PickerKind::DirectPlay, PickerKind::SubtitleSize, PickerKind::SubtitlePosition, PickerKind::NextEpisode, PickerKind::SkipInterval, PickerKind::InstantDpadSeeking, PickerKind::EpisodeNavigation],
-        Kind::AudioSubtitles if inputs.prefs.is_some() => &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles],
+        Kind::AudioSubtitles if inputs.prefs.is_some() => &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack],
         _ => &[],
     }
 }
@@ -411,11 +411,11 @@ fn resolve_value(field: PickerKind, quality: Quality, direct_play: DirectPlayMod
         PickerKind::InstantDpadSeeking => Value::InstantDpadSeeking(crate::route::instant_dpad_seeking()),
         PickerKind::EpisodeNavigation => Value::EpisodeNavigation(crate::route::episode_navigation()),
         PickerKind::SkipInterval => Value::SkipInterval(crate::route::skip_interval()),
-        // A deprecated code (`pb`) resolves to its replacement so the picker checks that entry.
-        PickerKind::AudioLanguage => Value::Language(prefs.and_then(|p| p.stated_language.as_deref()).map(crate::catalog::languages::canonical).unwrap_or_default().to_string()),
-        PickerKind::SubtitleLanguage => Value::Language(prefs.and_then(|p| p.subtitle_language.as_deref()).map(crate::catalog::languages::canonical).unwrap_or_default().to_string()),
-        PickerKind::SubtitleMode => Value::Mode(prefs.map_or(0, |p| p.subtitle_mode)),
-        PickerKind::ForcedSubtitles => Value::Forced(prefs.map_or(0, |p| p.subtitle_forced)),
+        PickerKind::AudioLanguage => Value::Language(prefs.and_then(|p| p.audio_language.clone()).unwrap_or_default()),
+        PickerKind::SubtitleLanguage => Value::Language(prefs.and_then(|p| p.subtitle_language.clone()).unwrap_or_default()),
+        PickerKind::SubtitleMode => Value::Mode(prefs.map_or(SubtitleMode::Default, |p| p.subtitle_mode)),
+        // The server's own default for a user who never set it.
+        PickerKind::DefaultAudioTrack => Value::DefaultTrack(prefs.is_none_or(|p| p.play_default_audio_track)),
     }
 }
 /// `PickerKind`'s picker options.
@@ -439,14 +439,15 @@ fn field_options(field: PickerKind, quality: Quality, direct_play: DirectPlayMod
                 else { nj_platform::i18n::msg::settings_playback_instant_dpad_seeking_off() }).into(), Value::EpisodeNavigation(v))).collect(),
         PickerKind::SkipInterval => SkipInterval::LADDER.into_iter()
             .map(|i| (skip_interval_label(i), Value::SkipInterval(i))).collect(),
-        PickerKind::SubtitleMode => [(nj_platform::i18n::msg::settings_audio_manual(), 0), (nj_platform::i18n::msg::settings_audio_foreign(), 1), (nj_platform::i18n::msg::settings_audio_always(), 2)]
-            .into_iter().map(|(label, mode)| (label.into(), Value::Mode(mode))).collect(),
-        PickerKind::ForcedSubtitles => [nj_platform::i18n::msg::settings_audio_prefer_regular(), nj_platform::i18n::msg::settings_audio_prefer_forced(), nj_platform::i18n::msg::settings_audio_only_forced(), nj_platform::i18n::msg::settings_audio_only_regular()]
-            .into_iter().enumerate().map(|(i, s)| (s.into(), Value::Forced(i as i64))).collect(),
+        PickerKind::SubtitleMode => SubtitleMode::ALL.into_iter()
+            .map(|mode| (subtitle_mode_label(mode).into(), Value::Mode(mode))).collect(),
+        PickerKind::DefaultAudioTrack => [true, false].into_iter()
+            .map(|on| (default_track_label(on).into(), Value::DefaultTrack(on))).collect(),
+        // The server's languages (`jf::preferences`), keyed by the code it stores.
         PickerKind::AudioLanguage | PickerKind::SubtitleLanguage => {
-            let mut result = vec![(if field == PickerKind::AudioLanguage { nj_platform::i18n::msg::settings_audio_original() } else { nj_platform::i18n::msg::settings_audio_no_preference() }.into(), Value::Language(String::new()))];
-            result.extend(crate::catalog::languages::picker()
-                .map(|l| (l.name.to_string(), Value::Language(l.code.to_string()))));
+            let mut result = vec![(nj_platform::i18n::msg::settings_audio_no_preference().into(), Value::Language(String::new()))];
+            result.extend(prefs.into_iter().flat_map(|p| p.cultures.iter())
+                .map(|c| (c.name.clone(), Value::Language(c.code.clone()))));
             let current = resolve_value(field, quality, direct_play, prefs);
             if !result.iter().any(|(_, v)| *v == current) {
                 if let Value::Language(code) = current { result.push((code.clone(), Value::Language(code))); }
@@ -455,17 +456,15 @@ fn field_options(field: PickerKind, quality: Quality, direct_play: DirectPlayMod
         }
     }
 }
-/// The trailing read-out `PickerKind`'s row shows for its current value. Direct Play and Forced
-/// Subtitles show a short form of the picker's label ([`direct_play_readout`], [`forced_readout`]),
-/// as does the Subtitles mode row's foreign-audio option; every other field shows the picker's own
-/// label.
+/// The trailing read-out `PickerKind`'s row shows for its current value. Direct Play, Default audio
+/// track and three of the Subtitles modes show a short form of the picker's label
+/// ([`direct_play_readout`], [`default_track_readout`], [`subtitle_mode_readout`]); every other
+/// field shows the picker's own label.
 fn field_readout(field: PickerKind, quality: Quality, direct_play: DirectPlayMode, prefs: Option<&AudioPreferences>) -> String {
     match field {
         PickerKind::DirectPlay => direct_play_readout(direct_play).into(),
-        PickerKind::ForcedSubtitles => forced_readout(prefs.map_or(0, |p| p.subtitle_forced)).into(),
-        // Only the foreign-audio mode has a short form (es does not fit beside the label); the
-        // other two modes show the picker's own label.
-        PickerKind::SubtitleMode if prefs.is_some_and(|p| p.subtitle_mode == 1) => nj_platform::i18n::msg::settings_audio_foreign_short().into(),
+        PickerKind::DefaultAudioTrack => default_track_readout(prefs.is_none_or(|p| p.play_default_audio_track)).into(),
+        PickerKind::SubtitleMode => subtitle_mode_readout(prefs.map_or(SubtitleMode::Default, |p| p.subtitle_mode)).into(),
         PickerKind::SubtitleSize => subtitle_size_label(crate::route::subtitle_size()).into(),
         PickerKind::SubtitlePosition => subtitle_position_label(crate::route::subtitle_position()).into(),
         _ => {
@@ -494,11 +493,12 @@ fn field_form(inputs: &FieldListInputs<'_>) -> Form<RowId, Action, SettingsPage>
     for &field in fields_of(inputs) {
         let value = field_readout(field, inputs.quality, inputs.direct_play, inputs.prefs);
         let mut row = Row::new(field.title()).value(&value).chevron(true).dim(inputs.busy);
+        // A language's name is the server's text, not the app's.
+        if matches!(resolve_value(field, inputs.quality, inputs.direct_play, inputs.prefs), Value::Language(code) if !code.is_empty()) {
+            row = row.server_value();
+        }
         if field == PickerKind::Quality && inputs.direct_play == DirectPlayMode::Forced {
             row = row.detail(nj_platform::i18n::msg::settings_playback_overridden());
-        }
-        if field == PickerKind::AudioLanguage && inputs.prefs.is_some_and(|p| p.auto_select_audio == Some(false)) {
-            row = row.detail(nj_platform::i18n::msg::settings_audio_selection_off());
         }
         section = section.item(RowId::Field(field), RowKind::Nav(SettingsPage::Picker(field)), Action::Open, row);
     }
@@ -529,16 +529,32 @@ fn direct_play_readout(mode: DirectPlayMode) -> &'static str {
         _ => mode_label(mode),
     }
 }
-/// The Forced Subtitles row's trailing read-out, per option in `field_options` order: a short form
-/// of the picker's sentence. An unknown value reads as "Not set".
-fn forced_readout(value: i64) -> &'static str {
-    match value {
-        0 => nj_platform::i18n::msg::settings_audio_prefer_regular_short(),
-        1 => nj_platform::i18n::msg::settings_audio_prefer_forced_short(),
-        2 => nj_platform::i18n::msg::settings_audio_only_forced_short(),
-        3 => nj_platform::i18n::msg::settings_audio_only_regular_short(),
-        _ => nj_platform::i18n::msg::settings_audio_not_set(),
+/// A Subtitles option, as the picker lists it (Jellyfin's `SubtitleMode`).
+fn subtitle_mode_label(mode: SubtitleMode) -> &'static str {
+    match mode {
+        SubtitleMode::Default => nj_platform::i18n::msg::settings_audio_mode_default(),
+        SubtitleMode::Smart => nj_platform::i18n::msg::settings_audio_foreign(),
+        SubtitleMode::Always => nj_platform::i18n::msg::settings_audio_always(),
+        SubtitleMode::OnlyForced => nj_platform::i18n::msg::settings_audio_only_forced(),
+        SubtitleMode::None => nj_platform::i18n::msg::settings_audio_manual(),
     }
+}
+/// The Subtitles row's trailing read-out: a short form where the picker's sentence is long.
+fn subtitle_mode_readout(mode: SubtitleMode) -> &'static str {
+    match mode {
+        SubtitleMode::Default => nj_platform::i18n::msg::settings_audio_mode_default_short(),
+        SubtitleMode::Smart => nj_platform::i18n::msg::settings_audio_foreign_short(),
+        SubtitleMode::OnlyForced => nj_platform::i18n::msg::settings_audio_only_forced_short(),
+        mode => subtitle_mode_label(mode),
+    }
+}
+/// A Default audio track option (Jellyfin's `PlayDefaultAudioTrack`).
+fn default_track_label(on: bool) -> &'static str {
+    if on { nj_platform::i18n::msg::settings_audio_default_track_on() } else { nj_platform::i18n::msg::settings_audio_default_track_off() }
+}
+/// The Default audio track row's trailing read-out.
+fn default_track_readout(on: bool) -> &'static str {
+    if on { nj_platform::i18n::msg::settings_audio_default_track_on_short() } else { nj_platform::i18n::msg::settings_audio_default_track_off_short() }
 }
 impl Machine<InnerHost> for PreferencesPage {
     type Ev = ScreenEvent<InnerHost>;

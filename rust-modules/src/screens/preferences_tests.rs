@@ -1,7 +1,7 @@
 //! The field-list pages. The choice list's own transaction tests live beside it
 //! (`preferences/picker_tests.rs`); this file also owns the fixtures both share.
 use super::*;
-use crate::catalog::account::PreferenceRequest;
+use crate::jf::preferences::PreferenceRequest;
 use nj_machine::machine::{FocusRead, InputOwner, PressRead, Stamped, Tick};
 use nj_machine::present::Present;
 use crate::ui::fixture::FixtureMeasure;
@@ -30,36 +30,39 @@ pub(super) fn pushed(emitted: &[Stamped<InnerHost>]) -> Vec<SettingsPage> {
     emitted.iter().filter_map(|e| match &e.fx { Fx::Nav(nj_machine::machine::NavOp::Push(p)) => Some(*p), _ => None }).collect()
 }
 
-/// A published account profile with a synthetic (request, snapshot) pair, restoring the previous
-/// profile on drop. The caller holds `testlock::serial()`.
+/// A live Jellyfin sign-in with a synthetic (request, snapshot) pair, restoring the previous
+/// sign-in on drop. The caller holds `testlock::serial()`. `generation` is part of the user id, so
+/// [`Account::go_stale`] can move the sign-in on.
 pub(super) struct Account {
     pub request: PreferenceRequest,
     pub snapshot: PreferenceSnapshot,
-    user: crate::catalog::session::UserRef,
-    generation: u32,
-    previous: std::sync::Arc<crate::catalog::session::CurrentProfile>,
+    user_id: String,
+    /// The sign-ins this account made, newest last; each restores the one before it when dropped.
+    sign_ins: std::cell::RefCell<Vec<crate::jf::preferences::LiveSignInForTest>>,
 }
+const ACCOUNT_SERVER: &str = "http://10.0.0.2:8096";
 impl Account {
-    pub fn new(uuid: &str, generation: u32, prefs: AudioPreferences) -> Self {
-        let previous = crate::catalog::session::current_snapshot();
-        let user = crate::catalog::session::UserRef { id: 7, uuid: uuid.into(), ..Default::default() };
-        crate::catalog::session::publish_profile_for_test(Some(user.clone()), generation);
-        let (request, snapshot) = PreferenceRequest::fixture_for_test(user.clone(), generation, prefs);
-        Self { request, snapshot, user, generation, previous }
+    pub fn new(user: &str, generation: u32, prefs: AudioPreferences) -> Self {
+        let user_id = format!("{user}-{generation}");
+        let signed_in = crate::jf::preferences::LiveSignInForTest::new(ACCOUNT_SERVER, &user_id);
+        let (request, snapshot) = PreferenceRequest::fixture_for_test(ACCOUNT_SERVER, &user_id, prefs);
+        Self { request, snapshot, user_id, sign_ins: std::cell::RefCell::new(vec![signed_in]) }
     }
     /// A fresh receipt body for the same identity, carrying `prefs`.
     pub fn reply(&self, prefs: AudioPreferences) -> AccountPreferenceReply {
-        let (request, snapshot) = PreferenceRequest::fixture_for_test(self.user.clone(), self.generation, prefs);
+        let (request, snapshot) = PreferenceRequest::fixture_for_test(ACCOUNT_SERVER, &self.user_id, prefs);
         AccountPreferenceReply { request: Some(request), outcome: Ok(snapshot) }
     }
-    /// The profile moves on: every request captured before is now stale.
+    /// Another user signs in: every request captured before is now stale.
     pub fn go_stale(&self) {
-        crate::catalog::session::publish_profile_for_test(Some(self.user.clone()), self.generation + 1);
+        let next = crate::jf::preferences::LiveSignInForTest::new(ACCOUNT_SERVER, &format!("{}-next", self.user_id));
+        self.sign_ins.borrow_mut().push(next);
     }
 }
 impl Drop for Account {
+    /// Newest first, so the sign-in before this account is the one left live.
     fn drop(&mut self) {
-        crate::catalog::session::publish_profile_for_test(self.previous.user.clone(), self.previous.generation);
+        while self.sign_ins.borrow_mut().pop().is_some() {}
     }
 }
 /// An Audio & Subtitles field list that has loaded `account`'s snapshot (and published it).
@@ -88,13 +91,27 @@ fn account_constructor_is_inert_and_first_enter_emits_one_load_effect() {
 }
 
 #[test]
-fn both_language_pickers_offer_the_full_catalog_and_an_empty_preference() {
+fn both_language_pickers_offer_the_servers_languages_and_an_empty_preference() {
+    let prefs = AudioPreferences { cultures: std::sync::Arc::new(vec![
+        crate::jf::preferences::Culture { code: "eng".into(), name: "English".into() },
+        crate::jf::preferences::Culture { code: "fre".into(), name: "French".into() },
+    ]), ..Default::default() };
     for field in [PickerKind::AudioLanguage, PickerKind::SubtitleLanguage] {
-        let options = field_options(field, Quality::Original, DirectPlayMode::Auto, None);
-        assert_eq!(options.len(), crate::catalog::languages::picker().count() + 1);
-        assert_eq!(options[0].1, Value::Language(String::new()));
-        assert!(options.len() > 100);
+        let options = field_options(field, Quality::Original, DirectPlayMode::Auto, Some(&prefs));
+        assert_eq!(options, vec![
+            (nj_platform::i18n::msg::settings_audio_no_preference().to_string(), Value::Language(String::new())),
+            ("English".to_string(), Value::Language("eng".into())),
+            ("French".to_string(), Value::Language("fre".into())),
+        ]);
     }
+}
+
+/// A stored code the server no longer lists still shows, so the checked row is never missing.
+#[test]
+fn a_stored_language_the_server_does_not_list_is_still_offered() {
+    let prefs = AudioPreferences { audio_language: Some("tlh".into()), ..Default::default() };
+    let options = field_options(PickerKind::AudioLanguage, Quality::Original, DirectPlayMode::Auto, Some(&prefs));
+    assert_eq!(options.last().unwrap().1, Value::Language("tlh".into()));
 }
 
 /// Every field row is a `Nav` item onto its own picker page — the list pushes through the family's
@@ -108,7 +125,7 @@ fn every_field_row_pushes_its_picker_and_nothing_else() {
     let mut audio = loaded_audio_page(&account);
     for (page, fields) in [
         (&mut playback, vec![PickerKind::Quality, PickerKind::DirectPlay, PickerKind::SubtitleSize, PickerKind::SubtitlePosition, PickerKind::NextEpisode, PickerKind::SkipInterval]),
-        (&mut audio, vec![PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles]),
+        (&mut audio, vec![PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack]),
     ] {
         for field in fields {
             let key = RowId::Field(field).key().0;
@@ -125,7 +142,7 @@ fn every_field_row_pushes_its_picker_and_nothing_else() {
 fn the_field_list_shows_the_value_a_picker_committed_after_the_pop() {
     let _serial = nj_base::testlock::serial();
     let _session = crate::catalog::session::TempSession::new("pref-parent-refresh");
-    let account = Account::new("pref-parent-refresh", 12, AudioPreferences { subtitle_mode: 0, ..Default::default() });
+    let account = Account::new("pref-parent-refresh", 12, AudioPreferences { subtitle_mode: crate::jf::preferences::SubtitleMode::None, ..Default::default() });
     let mut parent = loaded_audio_page(&account);
     let mode_row = parent.form.index_of(&RowId::Field(PickerKind::SubtitleMode)).unwrap();
     assert_eq!(parent.state.values[mode_row], nj_platform::i18n::msg::settings_audio_manual());
@@ -134,7 +151,7 @@ fn the_field_list_shows_the_value_a_picker_committed_after_the_pop() {
     let Some(Fx::App(AppFx::Preferences(PreferenceCmd::Save { reply, .. }))) = emitted.into_iter().map(|e| e.fx).find(|f| matches!(f, Fx::App(AppFx::Preferences(_)))) else {
         panic!("choosing Always must save");
     };
-    reply.send(account.reply(AudioPreferences { subtitle_mode: 2, ..Default::default() })).unwrap();
+    reply.send(account.reply(AudioPreferences { subtitle_mode: crate::jf::preferences::SubtitleMode::Always, ..Default::default() })).unwrap();
     assert!(popped(&drive(&mut picker, tick(), 2)), "the durable receipt pops the picker");
     // The page beneath is re-entered by the pop.
     drive(&mut parent, ScreenEvent::Enter(Enter::Fresh { focus: FocusTarget::FirstInGroup(GroupId(0)) }), 0);
@@ -183,7 +200,7 @@ fn the_field_list_rereads_a_subtitle_look_picked_elsewhere() {
 
 /// Every field belongs to exactly the page whose list shows it: the Audio & Subtitles page lists
 /// its four account fields and nothing else, the Playback page the six local ones, so a picker's
-/// `kind()` (its crumb, its copy, whether it loads the Plex account) can never disagree with the
+/// `kind()` (its crumb, its copy, whether it loads the Jellyfin user preferences) can never disagree with the
 /// list that opened it.
 #[test]
 fn every_field_reports_the_page_whose_list_shows_it() {
@@ -197,5 +214,5 @@ fn every_field_reports_the_page_whose_list_shows_it() {
     }
     let audio = FieldListInputs { kind: Kind::AudioSubtitles, quality: Quality::Original, direct_play: DirectPlayMode::Auto,
         prefs: Some(&prefs), busy: false, show_retry: false };
-    assert_eq!(fields_of(&audio), &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::ForcedSubtitles]);
+    assert_eq!(fields_of(&audio), &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack]);
 }

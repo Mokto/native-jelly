@@ -215,6 +215,11 @@ impl<'a> Jf<'a> {
         self.c.jf_send(path, method, &headers, body)
     }
 
+    /// The whole answer, for a caller that tells refusals and failures apart (`preferences`).
+    pub(crate) fn reply(&self, path: &str, method: Method, body: Option<&[u8]>) -> Option<crate::http::Reply> {
+        self.send(path, method, body)
+    }
+
     pub(crate) fn status(&self, path: &str, method: Method, body: Option<&[u8]>) -> Option<i32> {
         self.send(path, method, body).map(|r| r.status)
     }

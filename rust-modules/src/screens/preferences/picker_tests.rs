@@ -50,19 +50,23 @@ fn choosing_the_checked_value_pops_without_a_write() {
     crate::route::restore_quality(previous);
 }
 
-/// OK on the already-checked language is not a change and must not write to the account, least of
-/// all the canonical `pt-BR` in place of the stored deprecated `pb`; a different one still does.
+/// OK on the already-checked language is not a change and must not write to the server; a
+/// different one still does.
 #[test]
 fn picking_the_already_current_language_writes_nothing_and_a_different_one_still_does() {
     let _serial = nj_base::testlock::serial();
     let _session = crate::catalog::session::TempSession::new("picker-noop-language");
-    let account = Account::new("picker-noop-language", 21, AudioPreferences { stated_language: Some("pb".into()), ..Default::default() });
+    let cultures = std::sync::Arc::new(vec![
+        crate::jf::preferences::Culture { code: "eng".into(), name: "English".into() },
+        crate::jf::preferences::Culture { code: "fre".into(), name: "French".into() },
+    ]);
+    let account = Account::new("picker-noop-language", 21, AudioPreferences { audio_language: Some("eng".into()), cultures, ..Default::default() });
     let mut page = audio_picker(&account, PickerKind::AudioLanguage);
-    let same = key_of(&page, &Value::Language("pt-BR".into()));
+    let same = key_of(&page, &Value::Language("eng".into()));
     let emitted = drive(&mut page, ScreenEvent::Activate(same), same);
     assert_eq!(preference_commands(&emitted), 0, "a no-op pick must not emit a preference command");
     assert!(popped(&emitted));
-    let other = key_of(&page, &Value::Language("fr".into()));
+    let other = key_of(&page, &Value::Language("fre".into()));
     let emitted = drive(&mut page, ScreenEvent::Activate(other), other);
     assert_eq!(preference_commands(&emitted), 1, "a different pick still saves");
     assert!(!popped(&emitted), "the page stays until the receipt is durable");
@@ -75,7 +79,7 @@ fn a_durable_account_receipt_pops_and_a_failed_one_keeps_the_page_with_retry() {
     let _session = crate::catalog::session::TempSession::new("picker-receipt");
     let account = Account::new("picker-receipt", 22, AudioPreferences::default());
     let mut page = audio_picker(&account, PickerKind::SubtitleMode);
-    let always = key_of(&page, &Value::Mode(2));
+    let always = key_of(&page, &Value::Mode(crate::jf::preferences::SubtitleMode::Always));
     // failure first
     let reply = save_reply(drive(&mut page, ScreenEvent::Activate(always), always));
     reply.send(AccountPreferenceReply { request: Some(account.request.clone()), outcome: Err(PreferenceError::Unavailable) }).unwrap();
@@ -87,7 +91,7 @@ fn a_durable_account_receipt_pops_and_a_failed_one_keeps_the_page_with_retry() {
     assert_eq!(page.form.table.sel, retry as i32, "the cursor lands on Retry");
     // Retry re-sends the SAME update, and its durable receipt pops
     let reply = save_reply(drive(&mut page, ScreenEvent::Activate(RETRY_KEY), RETRY_KEY));
-    reply.send(account.reply(AudioPreferences { subtitle_mode: 2, ..Default::default() })).unwrap();
+    reply.send(account.reply(AudioPreferences { subtitle_mode: crate::jf::preferences::SubtitleMode::Always, ..Default::default() })).unwrap();
     let emitted = drive(&mut page, tick(), always);
     assert!(popped(&emitted), "the durable receipt pops the picker");
 }
@@ -160,7 +164,7 @@ fn a_stale_request_leaves_the_picker_without_a_write_and_the_list_reloads() {
     let _session = crate::catalog::session::TempSession::new("picker-stale");
     let account = Account::new("picker-stale", 23, AudioPreferences::default());
     let mut parent = super::super::tests::loaded_audio_page(&account);
-    let mut page = PickerPage::new(EntryId(0), PickerKind::ForcedSubtitles);
+    let mut page = PickerPage::new(EntryId(0), PickerKind::DefaultAudioTrack);
     assert!(page.txn.snapshot.is_some(), "the picker starts from its parent's confirmed snapshot");
     account.go_stale();
     let emitted = drive(&mut page, tick(), 0);
@@ -176,8 +180,8 @@ fn back_is_held_while_an_account_write_is_in_flight() {
     let _serial = nj_base::testlock::serial();
     let _session = crate::catalog::session::TempSession::new("picker-back-held");
     let account = Account::new("picker-back-held", 24, AudioPreferences::default());
-    let mut page = audio_picker(&account, PickerKind::ForcedSubtitles);
-    let other = key_of(&page, &Value::Forced(1));
+    let mut page = audio_picker(&account, PickerKind::DefaultAudioTrack);
+    let other = key_of(&page, &Value::DefaultTrack(true));
     drive(&mut page, ScreenEvent::Activate(other), other);
     let back = ScreenEvent::Input(InputEvent { at: Tick::default(), source: Source::RemoteFifo,
         kind: InputKind::Key { key: Key::Back, edge: Edge::Down, sym: 0, wcode: 0, at_edge: false } });
@@ -265,10 +269,10 @@ fn ok_on_the_checked_size_after_a_failed_write_retries_the_write() {
 }
 
 /// Subtitle size and position are LOCAL per-television settings. Opening their picker must not
-/// start the Plex account load (whose failure puts the Audio page's Retry row under the cursor),
+/// start the Jellyfin preferences load (whose failure puts the Audio page's Retry row under the cursor),
 /// must not read as the Audio & Subtitles page, and must not carry the account note.
 #[test]
-fn the_local_subtitle_pickers_never_touch_the_plex_account() {
+fn the_local_subtitle_pickers_never_touch_the_jellyfin_preferences() {
     let _serial = nj_base::testlock::serial();
     let _session = crate::catalog::session::TempSession::new("pref-local-subtitle-pickers");
     for field in [PickerKind::SubtitleSize, PickerKind::SubtitlePosition] {

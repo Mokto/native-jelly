@@ -119,17 +119,17 @@ pub(crate) enum JfAuthReply {
 /// A private live receipt. Requests contain account credentials and are intentionally unsupported
 /// by the controlled recorder/replay codec; the bridge must reject them before execution.
 pub(crate) struct AccountPreferenceReply {
-    pub request: Option<crate::catalog::account::PreferenceRequest>,
-    pub outcome: Result<crate::catalog::account::PreferenceSnapshot, crate::catalog::account::PreferenceError>,
+    pub request: Option<crate::jf::preferences::PreferenceRequest>,
+    pub outcome: Result<crate::jf::preferences::PreferenceSnapshot, crate::jf::preferences::PreferenceError>,
 }
 
 pub(crate) enum PreferenceCmd {
     /// Capture the live profile only after admission: even session::peek can schedule storage IO.
     Load { reply: std::sync::mpsc::Sender<AccountPreferenceReply> },
     Save {
-        request: crate::catalog::account::PreferenceRequest,
-        base: crate::catalog::account::PreferenceSnapshot,
-        update: crate::catalog::account::PreferenceUpdate,
+        request: crate::jf::preferences::PreferenceRequest,
+        base: crate::jf::preferences::PreferenceSnapshot,
+        update: crate::jf::preferences::PreferenceUpdate,
         reply: std::sync::mpsc::Sender<AccountPreferenceReply>,
     },
     Quality { quality: crate::catalog::session::PlaybackQuality, reply: std::sync::mpsc::Sender<bool> },

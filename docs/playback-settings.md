@@ -1,8 +1,8 @@
 # Playback settings
 
 Settings has **Video & playback** and **Audio & subtitles** pages. Quality and Direct Play
-are saved on this television; language preferences are saved to the active Plex profile and
-are shared with other Plex clients.
+are saved on this television; language preferences are saved to the signed-in Jellyfin user on
+the server and are shared with that user's other Jellyfin clients.
 
 ## Quality and Direct Play
 
@@ -24,47 +24,43 @@ Disabled needs no confirmation.
 
 Audio passthrough remains the television's Digital Sound Output setting.
 
-## Plex account preferences
+## Jellyfin user preferences
 
-The screen loads and saves the active profile using its own plex.tv credential. A save sends
-only changed keys to `PUT https://clients.plex.tv/api/v2/user/profile`, with query parameters and
-an empty body. Saving does not create a television-only language preference. Confirmed values
-remain authoritative if a save fails; the screen provides Retry. Responses for an old profile
-or an obsolete preference revision cannot replace newer settings.
+**Audio & subtitles** edits the four playback fields of the signed-in user's Jellyfin
+`UserConfiguration` (`jf/preferences.rs`, issue #41):
 
-Audio **Original** clears the preferred language while enabling automatic selection. Subtitle
-mode offers manual selection, "when audio isn't in the subtitle language", and always; **No preference** clears only the
-subtitle language. Existing PMS item selections take precedence, followed by explicit show
-preferences and then account defaults. That mode shows subtitles when the audio that will play is not in the subtitle language (`route/plan.rs` compares the two).
-Account defaults also ride a playback that starts as a conversion: the server delivers the track
-as its own file or muxed into the stream, and burns it only when nothing soft fits
-(`docs/jellyfin-playback.md` "Subtitles").
+| Row | Field | Options |
+|---|---|---|
+| Preferred audio language | `AudioLanguagePreference` | No preference, or one of the server's languages |
+| Subtitles | `SubtitleMode` | As the file marks them (`Default`), When audio isn't in the subtitle language (`Smart`), Always, Only forced subtitles (`OnlyForced`), Off (`None`) |
+| Subtitle language | `SubtitleLanguagePreference` | No preference, or one of the server's languages |
+| Default audio track | `PlayDefaultAudioTrack` | Play the file's default track, or Prefer my audio language |
 
-PMS can keep using an earlier account preference until its own copy updates. The UI explains
-this delay, and the resolver does not guess that an old-language selection was automatic.
+The values live on the server, per user, so every Jellyfin client of that user shares them, and
+nothing is stored on the television. Playback reads them from `/Users/Me` at each start
+(`Jf::language_prefs`), so a save applies from the next playback.
 
-### Language catalog provenance
+A load reads `GET /Users/Me` (its `Id` must be the signed-in user, or the answer is refused as
+stale) and `GET /Localization/Cultures`. The languages are the server's list, keyed by
+`ThreeLetterISOLanguageName` (`eng`, `fre`): the codes the server stores and reports on a stream,
+and the list jellyfin-web's settings page offers. A stored code the server no longer lists stays
+visible and selected.
 
-Both pickers bundle the complete account-picker catalog verified in **Plex Web 4.160.0**,
-build **75ddd7b**: 190 entries with native display names and exact language codes. This data is
-local; the application does not download JavaScript to populate the menu. The choices are
-independent of which languages happen to occur in the current library or item.
+`POST /Users/Configuration?userId=` replaces the WHOLE configuration, so a save reads
+`/Users/Me` again, changes only the field picked, and sends every other field back as the server
+gave it. If the four fields no longer match what the page showed (another client changed them),
+the save is refused as stale and the page reloads instead of overwriting a change nobody saw. A
+pick of the value already checked sends nothing. Confirmed values stay authoritative if a save
+fails; the page offers Retry. A request captured under one sign-in cannot be saved under another.
 
-Sources inspected:
-
-- [Language catalog, module 12060](https://app.plex.tv/desktop/js/main-8792-79c4e04db2360a62e838-plex-4.160.0-75ddd7b.js).
-- [Audio & Subtitle Settings picker](https://app.plex.tv/desktop/js/chunk-4030-108232e3535fafc4f3ac-plex-4.160.0-75ddd7b.js).
-
-Plex sorts native names with `localeCompare`, excludes `xx` and `xn`, and restricts this picker
-to codes of length two or five. Its broader catalog includes `es-419`, but that value is not
-an offered account-picker option. Existing account values outside the offered list remain
-visible and are preserved. Regional codes are not rewritten on save.
+Jellyfin has no forced-subtitle preference beside the mode, so the Plex-era *Forced subtitles*
+row is gone; `OnlyForced` is a Subtitles mode.
 
 ## Verification boundary
 
-Mock profile writes cover development and UI verification. Real account preferences must not be
-changed as part of these tests. Issue #223's live PMS preference-propagation measurement requires
-a throwaway account shared to the dev server and remains a separate completion gate.
+Host tests drive the load and save against a fake server (`jf/preferences_tests.rs`). A real
+user's preferences must not be changed as part of verification: use a throwaway user on a test
+server.
 
 Host tests cannot establish DTS sound, synchronization, resource allocation or DTS-HD core
 acceptance. Those require the synthetic DTS fixture and server-backed playback on the television.
@@ -99,4 +95,4 @@ this change does not advertise all DTS-HD streams as directly playable.
 
 The television remained muted with its panel off. These results do not claim audible output
 verification, and no real Plex account language preferences were written. The throwaway-account
-PMS propagation measurement is still outstanding.
+PMS propagation measurement was never made, and is moot since #41: the page no longer writes plex.tv.

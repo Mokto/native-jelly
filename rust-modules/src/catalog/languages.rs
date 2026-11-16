@@ -1,4 +1,7 @@
-//! Plex Web's account language picker, bundled for offline Settings navigation.
+//! Plex Web's account language list (two- or five-character codes), kept as test data: the
+//! font-coverage tests in `player/ass/fonts/tests.rs` walk its native names. Settings does not use
+//! it: since #41 the Audio & subtitles language pickers offer the Jellyfin server's own
+//! `/Localization/Cultures`, keyed by three-letter code (`jf/preferences.rs`).
 //!
 //! Data source: Plex Web 4.160.0, main bundle module 12060 (native display names).
 //! https://app.plex.tv/desktop/js/main-8792-79c4e04db2360a62e838-plex-4.160.0-75ddd7b.js

@@ -107,7 +107,7 @@ pub(crate) enum PickerKind {
     AudioLanguage,
     SubtitleMode,
     SubtitleLanguage,
-    ForcedSubtitles,
+    DefaultAudioTrack,
     InstantDpadSeeking,
     EpisodeNavigation,
 }
@@ -129,7 +129,7 @@ impl PickerKind {
     pub(crate) fn parent(self) -> SettingsPage {
         match self {
             PickerKind::Quality | PickerKind::DirectPlay | PickerKind::SubtitleSize | PickerKind::SubtitlePosition | PickerKind::NextEpisode | PickerKind::SkipInterval | PickerKind::InstantDpadSeeking | PickerKind::EpisodeNavigation => SettingsPage::Playback,
-            PickerKind::AudioLanguage | PickerKind::SubtitleMode | PickerKind::SubtitleLanguage | PickerKind::ForcedSubtitles => SettingsPage::AudioSubtitles,
+            PickerKind::AudioLanguage | PickerKind::SubtitleMode | PickerKind::SubtitleLanguage | PickerKind::DefaultAudioTrack => SettingsPage::AudioSubtitles,
         }
     }
 }

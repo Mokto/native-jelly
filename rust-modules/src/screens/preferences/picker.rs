@@ -10,8 +10,7 @@
 //! **The transaction.** The page owns it end to end: it adopts the parent's confirmed snapshot (or
 //! loads one when there is none), asks the Direct Play *Forced* question before persisting it,
 //! submits through the same `AppFx::Preferences` paths, and pops on a DURABLE receipt. Choosing the
-//! checked option pops without a write (compared against the canonical current value, so a stored
-//! deprecated code is never rewritten by a pick that changed nothing) — except Size and Position,
+//! checked option pops without a write — except Size and Position,
 //! which publish their live value before the write lands: there the checked row must also match the
 //! STORED value, so OK on it after a failed write retries instead of popping over an unsaved pick. A failed write keeps the
 //! page, shows the status and — for the account fields — a Retry row. BACK is held while an account
@@ -62,7 +61,9 @@ pub(crate) struct PickerPage {
 fn option_form(options: Vec<(String, Value)>, current: &Value, busy: bool, retry: bool) -> Form<OptionId, PickAction, SettingsPage> {
     let mut choices = FormSection::new("");
     for (i, (label, value)) in options.into_iter().enumerate() {
-        let row = Row::new(&label).checked(value == *current).dim(busy);
+        let mut row = Row::new(&label).checked(value == *current).dim(busy);
+        // A language's name is the server's text, not the app's.
+        if matches!(&value, Value::Language(code) if !code.is_empty()) { row = row.server_label(); }
         choices = choices.item_keyed(OptionId::Choice(value.clone()), RowKey(i as u32), RowKind::Choice, PickAction::Pick(value), row);
     }
     let retry = FormSection::new("").visible(retry).item_keyed(OptionId::Retry, RowKey(RETRY_KEY), RowKind::Button, PickAction::Retry,
@@ -155,9 +156,7 @@ impl PickerPage {
         }
     }
     fn pick(&mut self, value: Value, fx: &mut Effects<'_, InnerHost>) {
-        // OK on the checked row is not a change. Compared against the CANONICAL current value, so a
-        // stored deprecated code (`pb`) is not rewritten to `pt-BR` on the user's account by a pick
-        // that changed nothing.
+        // OK on the checked row is not a change, and writes nothing to the server.
         if self.current() == value && self.durable(&value) { self.pop(fx); return; }
         if value == Value::DirectPlay(DirectPlayMode::Forced) && self.state.direct_play != DirectPlayMode::Forced {
             self.alert.open(nj_platform::i18n::msg::settings_playback_force_question_c(), nj_platform::i18n::msg::settings_playback_force_body());
@@ -176,15 +175,10 @@ impl PickerPage {
             value => {
                 let mut update = PreferenceUpdate::default();
                 match (self.state.field, value) {
-                    (PickerKind::AudioLanguage, Value::Language(v)) => {
-                        update.audio_language = Some(v); update.auto_select_audio = Some(true);
-                    }
+                    (PickerKind::AudioLanguage, Value::Language(v)) => update.audio_language = Some(v),
                     (PickerKind::SubtitleLanguage, Value::Language(v)) => update.subtitle_language = Some(v),
-                    (_, Value::Mode(v)) => {
-                        update.subtitle_mode = Some(v);
-                        if v > 0 { update.auto_select_audio = Some(true); }
-                    },
-                    (_, Value::Forced(v)) => update.subtitle_forced = Some(v),
+                    (_, Value::Mode(v)) => update.subtitle_mode = Some(v),
+                    (_, Value::DefaultTrack(v)) => update.play_default_audio_track = Some(v),
                     _ => return,
                 }
                 self.txn.start_account(&mut self.state.io, Some(update), fx);

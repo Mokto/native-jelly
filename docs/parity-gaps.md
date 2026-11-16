@@ -1537,6 +1537,8 @@ player, transport and tracks auditors, and is counted once in the themes above.
 
 - **Preferred audio/subtitle settings implemented by #217/#222/#223.** The Settings page uses the full Plex account language catalog and writes the active profile. Explicit show settings precede account defaults, and PMS selections remain authoritative. The live preference-propagation measurement still requires a throwaway account.
 
+- **Superseded by #41.** Settings → Audio & subtitles now edits the signed-in Jellyfin user's `AudioLanguagePreference` / `SubtitleMode` / `SubtitleLanguagePreference` / `PlayDefaultAudioTrack` against the server's own language list; no plex.tv profile is read or written (`docs/playback-settings.md`).
+
 - **No Repeat / Shuffle** — `minor` / `medium`
   The reference client's Playback Options pane holds Repeat (No Repeat / Repeat One / Repeat All) and a Shuffle checkbox. We create every PlayQueue with shuffle=0 and repeat=0 as literals and never update them, so an episode always plays straight through into the next one in queue order.
   *Where:* plex/timeline.rs:50-70 (parameterise create_play_queue) plus a new PUT /playQueues/{id}?repeat=&shuffle= method in the same file; route.rs:428-460 (resolve_playqueue) which owns the queue result; the Up Next descriptor at route.rs:403-421 comes off that same queue snapshot.

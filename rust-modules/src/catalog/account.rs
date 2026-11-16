@@ -28,10 +28,6 @@ use std::time::{Duration, Instant};
 // while the PMS DTOs keep theirs as `i64`.
 use super::models::{de_bool, de_i64, de_str, de_vec};
 
-mod preferences;
-#[allow(unused_imports)]
-pub(crate) use preferences::{PreferenceError, PreferenceRequest, PreferenceSnapshot, PreferenceUpdate};
-
 const PLEX_TV: &str = "https://plex.tv";
 
 /// plex.tv's base URL: [`PLEX_TV`], or — in a dev build only — a LOOPBACK stand-in named by

@@ -557,22 +557,12 @@ fn playback_picker_seats_the_saved_option_and_restores_its_parent_row() {
 /// success (or a failed load's Retry row) must work without a direction key seating the engine.
 #[test]
 fn account_preference_landing_seats_the_first_rows_and_retry_landing() {
-    use crate::catalog::account::{AudioPreferences, PreferenceError, PreferenceRequest};
+    use crate::jf::preferences::{AudioPreferences, PreferenceError, PreferenceRequest};
     use registry::{AccountPreferenceReply, PreferenceCmd};
     let _g = nj_base::testlock::serial();
     let _sess = scratch_session("composed-preference-load-seat");
-    let previous = crate::catalog::session::current_snapshot();
-    struct RestoreProfile(std::sync::Arc<crate::catalog::session::CurrentProfile>);
-    impl Drop for RestoreProfile {
-        fn drop(&mut self) {
-            crate::catalog::session::publish_profile_for_test(self.0.user.clone(), self.0.generation);
-        }
-    }
-    let _restore = RestoreProfile(previous);
-    let user = crate::catalog::session::UserRef { id: 7, uuid: "preference-seat-fixture".into(),
-        ..Default::default() };
-    crate::catalog::session::publish_profile_for_test(Some(user.clone()), 71);
-    let (request, snapshot) = PreferenceRequest::fixture_for_test(user, 71, AudioPreferences::default());
+    let _signed_in = crate::jf::preferences::LiveSignInForTest::new("http://10.0.0.2:8096", "preference-seat-fixture");
+    let (request, snapshot) = PreferenceRequest::fixture_for_test("http://10.0.0.2:8096", "preference-seat-fixture", AudioPreferences::default());
     for fail_first in [false, true] {
         let (mut d, mut rig, id) = consent_opened(SettingsPage::AudioSubtitles);
         frame(&mut d, &mut rig, 32, vec![]);
@@ -721,22 +711,12 @@ fn a_typed_app_id_reaches_the_page_through_the_surface() {
 /// the new table's last row. Drive the real push from the real root row.
 #[test]
 fn audio_subtitles_pushed_from_the_root_seats_its_first_row_when_rows_land() {
-    use crate::catalog::account::{AudioPreferences, PreferenceRequest};
+    use crate::jf::preferences::{AudioPreferences, PreferenceRequest};
     use registry::{AccountPreferenceReply, PreferenceCmd};
     let _g = nj_base::testlock::serial();
     let _sess = multi_user_session("composed-audio-push-first-row");
-    let previous = crate::catalog::session::current_snapshot();
-    struct RestoreProfile(std::sync::Arc<crate::catalog::session::CurrentProfile>);
-    impl Drop for RestoreProfile {
-        fn drop(&mut self) {
-            crate::catalog::session::publish_profile_for_test(self.0.user.clone(), self.0.generation);
-        }
-    }
-    let _restore = RestoreProfile(previous);
-    let user = crate::catalog::session::UserRef { id: 7, uuid: "audio-push-fixture".into(),
-        ..Default::default() };
-    crate::catalog::session::publish_profile_for_test(Some(user.clone()), 72);
-    let (request, snapshot) = PreferenceRequest::fixture_for_test(user, 72, AudioPreferences::default());
+    let _signed_in = crate::jf::preferences::LiveSignInForTest::new("http://10.0.0.2:8096", "audio-push-fixture");
+    let (request, snapshot) = PreferenceRequest::fixture_for_test("http://10.0.0.2:8096", "audio-push-fixture", AudioPreferences::default());
     let (mut d, mut rig, id) = opened();
     // Audio & Subtitles is the signed-in root's third row (Favorite libraries, Video & playback,
     // Audio & subtitles): walk DOWN twice.

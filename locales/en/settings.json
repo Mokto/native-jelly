@@ -742,9 +742,9 @@
     "value": "Subtitle language",
     "description": "Settings, consent or sign-in UI: settings.audio.subtitle_language"
   },
-  "settings.audio.forced_subtitles": {
-    "value": "Forced subtitles",
-    "description": "Settings, consent or sign-in UI: settings.audio.forced_subtitles"
+  "settings.audio.default_track": {
+    "value": "Default audio track",
+    "description": "Settings, Audio & subtitles: row title for Jellyfin's PlayDefaultAudioTrack (play the track the file marks as default even when it is not in the preferred audio language)"
   },
   "settings.playback.force_body": {
     "value": "Bypasses playback compatibility checks and always uses original quality. Playback may have no sound, display incorrectly, freeze, or crash the app. Native Jelly will not automatically switch to compatible playback and may not recover gracefully.\n\nEnable this only if you understand these risks and know how to restart the app and return Direct Play to Auto.",
@@ -755,7 +755,7 @@
     "description": "Settings, consent or sign-in UI: settings.playback.force_note"
   },
   "settings.audio.account_note": {
-    "value": "Saved to your account. Changes may take time to affect playback; selections already made for an item still take priority.",
+    "value": "Saved to your Jellyfin user on the server, so your other Jellyfin apps use them too. Changes apply from the next playback.",
     "description": "Settings, consent or sign-in UI: settings.audio.account_note"
   },
   "settings.playback.copy": {
@@ -822,21 +822,29 @@
     "value": "Always",
     "description": "Settings, consent or sign-in UI: settings.audio.always"
   },
-  "settings.audio.prefer_regular": {
-    "value": "Prefer non-forced subtitles",
-    "description": "Settings, consent or sign-in UI: settings.audio.prefer_regular"
+  "settings.audio.mode_default": {
+    "value": "As the file marks them",
+    "description": "Subtitles picker option (Jellyfin SubtitleMode Default): load subtitles the file flags as default or forced"
   },
-  "settings.audio.prefer_regular.short": {
-    "value": "Prefer non-forced",
-    "description": "Settings, consent or sign-in UI: a SHORT trailing value shown beside the 'Forced Subtitles' row label (not the picker, which still uses the long settings.audio.prefer_regular string). Keep it a few words in the same grammatical form as its sibling Forced Subtitles values."
+  "settings.audio.mode_default.short": {
+    "value": "As the file marks them",
+    "description": "Settings, Audio & subtitles: SHORT trailing value beside the 'Subtitles' row for the 'As the file marks them' option"
   },
-  "settings.audio.prefer_forced": {
-    "value": "Prefer forced subtitles",
-    "description": "Settings, consent or sign-in UI: settings.audio.prefer_forced"
+  "settings.audio.default_track.on": {
+    "value": "Play the file's default track",
+    "description": "Default audio track picker option: the track the file marks as default plays, whatever its language"
   },
-  "settings.audio.prefer_forced.short": {
-    "value": "Prefer forced",
-    "description": "Settings, consent or sign-in UI: a SHORT trailing value shown beside the 'Forced Subtitles' row label (not the picker, which still uses the long settings.audio.prefer_forced string). Keep it a few words in the same grammatical form as its sibling Forced Subtitles values."
+  "settings.audio.default_track.on.short": {
+    "value": "File's default",
+    "description": "Settings, Audio & subtitles: SHORT trailing value beside the 'Default audio track' row when it is on"
+  },
+  "settings.audio.default_track.off": {
+    "value": "Prefer my audio language",
+    "description": "Default audio track picker option: the preferred audio language wins over the file's default track"
+  },
+  "settings.audio.default_track.off.short": {
+    "value": "My language",
+    "description": "Settings, Audio & subtitles: SHORT trailing value beside the 'Default audio track' row when it is off"
   },
   "settings.audio.only_forced": {
     "value": "Only forced subtitles",
@@ -845,18 +853,6 @@
   "settings.audio.only_forced.short": {
     "value": "Forced only",
     "description": "Settings, consent or sign-in UI: a SHORT trailing value shown beside the 'Forced Subtitles' row label (not the picker, which still uses the long settings.audio.only_forced string). Keep it a few words in the same grammatical form as its sibling Forced Subtitles values."
-  },
-  "settings.audio.only_regular": {
-    "value": "Only non-forced subtitles",
-    "description": "Settings, consent or sign-in UI: settings.audio.only_regular"
-  },
-  "settings.audio.only_regular.short": {
-    "value": "Non-forced only",
-    "description": "Settings, consent or sign-in UI: a SHORT trailing value shown beside the 'Forced Subtitles' row label (not the picker, which still uses the long settings.audio.only_regular string). Keep it a few words in the same grammatical form as its sibling Forced Subtitles values."
-  },
-  "settings.audio.original": {
-    "value": "Original",
-    "description": "Settings, consent or sign-in UI: settings.audio.original"
   },
   "settings.audio.no_preference": {
     "value": "No preference",
@@ -869,10 +865,6 @@
   "settings.playback.overridden": {
     "value": "Forced Direct Play: original quality.",
     "description": "Sub-line under the Default Quality row while Force Direct Play is on. One line, no wrap (about 580px at most in Belarusian): keep it short and say the same thing in every language."
-  },
-  "settings.audio.selection_off": {
-    "value": "Automatic selection is off. Choosing a language enables it.",
-    "description": "Sub-line under the Audio Language row when automatic audio selection is off. One line, no wrap (about 670px at most): keep it short and say the same thing in every language."
   },
   "settings.audio.retry": {
     "value": "Retry",

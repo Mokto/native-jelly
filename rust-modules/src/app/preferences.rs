@@ -1,7 +1,7 @@
 //! Live executor for Settings preference effects. The bridge's controlled-IO guard must admit
 //! the effect before this entrypoint: profile capture, thread admission and persistence all live
 //! here, never in a screen constructor or step.
-use crate::catalog::account::{PreferenceError, PreferenceRequest};
+use crate::jf::preferences::{PreferenceError, PreferenceRequest};
 use crate::screens::registry::{AccountPreferenceReply, PreferenceCmd};
 
 pub(super) fn execute(command: PreferenceCmd) {

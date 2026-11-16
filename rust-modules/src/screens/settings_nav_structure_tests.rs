@@ -12,7 +12,7 @@
 use super::composed_tests::{consent_opened, frame, opened, path, settle_frames, walk_to, SurfaceRig};
 use super::*;
 use super::test_support::*;
-use crate::catalog::account::{AudioPreferences, PreferenceRequest};
+use crate::jf::preferences::{AudioPreferences, PreferenceRequest};
 use super::super::family::PickerKind;
 use crate::screens::registry;
 use crate::ui::dispatch::Dispatcher;
@@ -132,15 +132,8 @@ fn every_playback_field_pushes_its_picker() {
 fn every_audio_and_subtitles_field_pushes_its_picker() {
     let _g = nj_base::testlock::serial();
     let _sess = scratch_session("nav-structure-audio");
-    let previous = crate::catalog::session::current_snapshot();
-    struct Restore(std::sync::Arc<crate::catalog::session::CurrentProfile>);
-    impl Drop for Restore {
-        fn drop(&mut self) { crate::catalog::session::publish_profile_for_test(self.0.user.clone(), self.0.generation); }
-    }
-    let _restore = Restore(previous);
-    let user = crate::catalog::session::UserRef { id: 7, uuid: "nav-structure-audio".into(), ..Default::default() };
-    crate::catalog::session::publish_profile_for_test(Some(user.clone()), 81);
-    let (request, snapshot) = PreferenceRequest::fixture_for_test(user, 81, AudioPreferences::default());
+    let _signed_in = crate::jf::preferences::LiveSignInForTest::new("http://10.0.0.2:8096", "nav-structure-audio");
+    let (request, snapshot) = PreferenceRequest::fixture_for_test("http://10.0.0.2:8096", "nav-structure-audio", AudioPreferences::default());
     let items = super::super::preferences::nav_items_for_test(super::super::preferences::Kind::AudioSubtitles, Some(&AudioPreferences::default()));
     assert_eq!(items.len(), 4, "{items:?}");
     assert_every_nav_item_pushes_exactly_its_dest("audio & subtitles", &items, &|| {
