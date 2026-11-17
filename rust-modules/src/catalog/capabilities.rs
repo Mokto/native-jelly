@@ -144,15 +144,35 @@ impl<'a> Capabilities<'a> {
     }
 
     /// Audio codecs the pipeline feeds AND this television decodes, in Jellyfin's spelling.
+    /// Then the formats the app converts to AC-3 itself (`devcaps::CONVERTED_AUDIO_CODECS`), when
+    /// this attempt's converter is usable.
     pub(crate) fn audio_codecs(&self) -> Vec<&'a str> {
-        self.device.audio.split(',').filter(|c| !c.is_empty()).map(jf_codec).collect()
+        let mut codecs: Vec<&'a str> = self.device.audio.split(',').filter(|c| !c.is_empty()).map(jf_codec).collect();
+        codecs.extend(self.converted_audio_codecs());
+        codecs
+    }
+
+    /// The source formats this attempt converts to AC-3 on the television.
+    fn converted_audio_codecs(&self) -> Vec<&'static str> {
+        devcaps::CONVERTED_AUDIO_CODECS.split(',').filter(|c| self.device.converts_audio(c)).collect()
+    }
+
+    /// The converter's width bound per converted codec, under any narrower refusal.
+    fn converted_channel_limits(&self) -> Vec<(&'static str, u32)> {
+        self.converted_audio_codecs().into_iter().map(|c| {
+            let refused = self.device.native_audio_limits.get(c).copied();
+            (c, refused.map_or(devcaps::CONVERTED_AUDIO_MAX_CHANNELS, |max| max.min(devcaps::CONVERTED_AUDIO_MAX_CHANNELS)))
+        }).collect()
     }
 
     /// The pipeline's audio codecs past the device's channel ceilings — Strict Original's ask. DTS
     /// still needs its table row (`devcaps::Caps::forced_feeds_audio`): a set with no DTS decoder
     /// takes the Load and never starts.
     pub(crate) fn pipeline_audio_codecs(&self) -> Vec<&'static str> {
-        devcaps::DP_AUDIO_CODECS.split(',').filter(|c| self.device.forced_feeds_audio(c)).map(jf_codec).collect()
+        let mut codecs: Vec<&'static str> =
+            devcaps::DP_AUDIO_CODECS.split(',').filter(|c| self.device.forced_feeds_audio(c)).map(jf_codec).collect();
+        codecs.extend(self.converted_audio_codecs());
+        codecs
     }
 
     /// Channel ceilings per decodable audio codec, in Jellyfin's spelling: the measured table row
@@ -168,15 +188,18 @@ impl<'a> Capabilities<'a> {
                 *slot = (*slot).min(*max);
             }
         }
-        limits.into_iter().map(|(c, ch)| (jf_codec(c), ch)).collect()
+        let mut limits: Vec<(&'a str, u32)> = limits.into_iter().map(|(c, ch)| (jf_codec(c), ch)).collect();
+        limits.extend(self.converted_channel_limits());
+        limits
     }
 
     /// Firmware exclusions retained by Strict Original, independently of the
     /// ordinary device ceilings that Forced mode intentionally omits.
     pub(crate) fn forced_audio_channel_limits(&self) -> impl Iterator<Item = (&str, u32)> {
         self.device.native_audio_limits.iter()
-            .filter(|(codec, max)| **max > 0 && self.device.forced_feeds_audio(codec))
+            .filter(|(codec, max)| **max > 0 && self.device.forced_feeds_audio(codec) && !self.device.converts_audio(codec))
             .map(|(codec, max)| (jf_codec(codec), *max))
+            .chain(self.converted_channel_limits())
     }
 
     /// The highest measured channel count of any audio codec, `None` when none was measured.

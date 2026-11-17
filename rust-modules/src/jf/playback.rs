@@ -1197,6 +1197,30 @@ mod tests {
             && row["Conditions"][0]["Value"] == "2"));
     }
 
+    /// With the converter loaded, the lossless formats direct-play (the TV converts them to AC-3)
+    /// up to 7.1, in both asks, and are never a conversion TARGET.
+    #[test]
+    fn converted_audio_is_offered_for_direct_play_with_its_width_bound() {
+        let mut device = device();
+        device.audio_converter = true;
+        let caps = crate::catalog::capabilities::Capabilities::of(&device, nj_platform::devcaps::dv::DvCapability::Unknown);
+        for forced in [false, true] {
+            let p = device_profile(&caps, &ProfileAsk { direct: true, forced, ceiling: None, burn: false, hls: None, embed_bitmap: true });
+            let dp = p["DirectPlayProfiles"][0]["AudioCodec"].as_str().unwrap().to_string();
+            for codec in ["truehd", "flac", "pcm_s24le", "pcm_bluray"] {
+                assert!(dp.split(',').any(|c| c == codec), "{codec} in {dp} (forced={forced})");
+            }
+            assert!(p["CodecProfiles"].as_array().unwrap().iter().any(|row| row["Codec"] == "truehd"
+                && row["Conditions"][0]["Property"] == "AudioChannels"
+                && row["Conditions"][0]["Value"] == "8"), "forced={forced}");
+            for target in p["TranscodingProfiles"].as_array().unwrap() {
+                assert!(!target["AudioCodec"].as_str().unwrap().contains("truehd"));
+            }
+        }
+        let off = profile(&ProfileAsk { direct: true, forced: false, ceiling: None, burn: false, hls: None, embed_bitmap: true });
+        assert_eq!(off["DirectPlayProfiles"][0]["AudioCodec"], "aac,ac3,eac3,dts", "no converter, no claim");
+    }
+
     #[test]
     fn opus_payload_support_alone_does_not_enable_server_profiles() {
         for forced in [false, true] {

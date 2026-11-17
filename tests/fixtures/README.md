@@ -257,11 +257,11 @@ the real one.)
 |---|---|---|
 | `movie_h264_ac3_1080p` | 1080 s | H.264 High + AC-3 5.1 + **four** SRT tracks ordered `[rus-forced, rus, eng, eng-SDH]`. 1080 s because `subtitle_text_srt` seeds 843 s (843/0.9 = 937 floor). CRF 20, not the 25 the rest of the H.264 set uses, and it declares a **`min_mbit` floor `verify()` asserts**: both rapid-seek cases' H.264 half lives here and seek *coalescing* is what they grade. |
 | `episode_hevc_4k_hdr10_eac3` (+`_next`) | 300 s ×2 | HEVC Main10 4K HDR10 (real mastering-display + CLL in-band) with a **German default** E-AC-3 at index 0 and English at index 1 — with no Plex language preference the file's default (row 0, German) is what plays at start (#210), so `audio_switch_native` picks row 1 to switch to the English track and expects a native switch. Built as a pair for `marker_credits_up_next`, with a shared 130 s intro and a 40 s black credits tail (see *markers*, below). Also carries a `min_mbit` floor. |
-| `movie_hevc_4k_hdr10_truehd` | 90 s | TrueHD 5.1 default + AC-3 5.1 sibling: the smart-direct-play shape. Also the item every player-tier fps scene decodes under its overlay. |
+| `movie_hevc_4k_hdr10_truehd` | 90 s | TrueHD 5.1 default + AC-3 5.1 sibling. The app converts the TrueHD default to AC-3 on the TV, so this is the converter's device case; the sibling is what it played before that. Also the item every player-tier fps scene decodes under its overlay. |
 | `movie_hevc_4k_dovi_p8` | 90 s | Dolby Vision **8.1**, RPU authored from scratch by `dovi_tool generate` and injected into a synthetic HDR10 base layer, muxed by `mkvmerge`. ffprobe reads back `dv_profile=8, bl_compat=1, el_present=0, rpu_present=1`, plus in-band `Dolby Vision RPU Data`. Carries the **four-track SRT stack** as well — its case covers `embedded-srt-many`. |
 | `movie_hevc_aac_mp4` | 90 s | HEVC/AAC in mp4 (`hvc1`, faststart) with a **sidecar** `.en.srt`. AAC **stereo**: this case is the mov-demuxer/ADTS path, real-world mp4s are usually 2.0, and Auto checks the device table’s per-codec channel limit. |
 | `episode_h264_aac` | 90 s | H.264/AAC episode with no subtitle tracks at all. |
-| `movie_h264_ac3_many_audio` | 90 s | **Eight** audio tracks, each language-tagged, with **TrueHD English at index 6** — `audio_switch_transcode` picks row 6 and expects the switch to force a transcode. |
+| `movie_h264_ac3_many_audio` | 90 s | **Eight** audio tracks, each language-tagged, with **MP2 English at index 6** — `audio_switch_transcode` picks row 6 and expects the switch to force a transcode (MP2 is neither decoded by the TV nor converted by the app; it was TrueHD until the app began converting TrueHD). |
 | `movie_av1_no_dp_audio` | 780 s | AV1 4K + Opus: on a set whose codec table lists no AV1 decoder (the dev set), no direct-playable video *and* no direct-playable audio, so the server must transcode. 780 s because `resume_transcode` seeds 600 s. **Its three cases need a Plex Pass server** — see below. |
 | `movie_hevc_4k_pgs_subs` | 780 s | HEVC 4K HDR10 + a **PGS bitmap** subtitle track at index 0 (`subtitle_image_pgs` picks row 1; row 0 is *Off*). Seeds 600 s. |
 
@@ -520,8 +520,9 @@ move; a wrong ETA on a twenty-minute job is how somebody concludes it hung.
 with `make_fixtures.py --tier pipeline --only pipe_h264_dts_1080p`, then extract with
 `ffmpeg -i pipe_h264_dts_1080p.mkv -map 0:a:0 -c:a copy -frames:a 1 -f dts dts-core-frame.dts`.
 The host regression grades exact preservation and extension stripping; audible decoding,
-synchronization and seeking are TV checks. The many-audio fixture now uses TrueHD at ordinal
-6 so its forced-transcode case remains a test of an unsupported format on DTS-capable TVs.
+synchronization and seeking are TV checks. The many-audio fixture uses MP2 at ordinal
+6 so its forced-transcode case remains a test of an unsupported format on DTS-capable TVs (it was
+TrueHD until the app began converting TrueHD to AC-3).
 
 
 ### Dolby Vision Profile 7 RPU fixtures

@@ -74,7 +74,9 @@ Automatic direct play intersects those formats with the TV's codec table and cha
 DTS requires an explicit capability row with a channel ceiling. The implemented Load strings
 are `H264`/`H265` (and `AV1` / `VP9` only on a set whose codec table lists that decoder) and
 `AAC`/`AC3`/`AC3 PLUS`/`DTS`. DTS-HD packets feed only their core;
-TrueHD and other unsupported feed formats still require server conversion. This is the
+TrueHD, MLP, FLAC, ALAC, Vorbis and PCM are decoded by the app's bundled FFmpeg and fed as `AC3`
+(`ff_audio_convert.rs`; 7.1 folds to 5.1), and only a rate or layout the converter refuses, or any
+other format, still requires server conversion. This is the
 implemented format set, not the complete vocabulary accepted by LG's firmware.
 
 | | AC3 | AC3 PLUS | AAC | DTS |
@@ -576,7 +578,7 @@ Base playback (decision + codec + not-stuck), one case each:
 |------|------|--------|
 | `dp_h264_ac3_1080p` | `movie_h264_ac3_1080p` | H264 + AC3 direct-play, 1080p, embedded SRT |
 | `dp_hevc_eac3_4k_hdr10` | `episode_hevc_4k_hdr10_eac3` | HEVC 4K **HDR10** + E-AC3 direct-play, TV episode |
-| `dp_hevc_truehd_ac3_sibling` | `movie_hevc_4k_hdr10_truehd` | **smart direct-play** (TrueHD default → AC3 sibling), HEVC 4K |
+| `dp_hevc_truehd_ac3_sibling` | `movie_hevc_4k_hdr10_truehd` | direct play with the TrueHD default **converted to AC-3 on the TV**, HEVC 4K |
 | `dp_hevc_eac3_dovi_p8` | `movie_hevc_4k_dovi_p8` | HEVC 4K **Dolby Vision P8** + E-AC3 direct-play. Grades that the stream **transports** (route, demux, bind, timeline, no error) — **not** that the panel engages Dolby Vision, which no assertion here can see. See the case's `_dovi_note` in `manifest.json` |
 | `dp_mp4_container` | `movie_hevc_aac_mp4` | HEVC + AAC, **mp4 container** direct-play (mov demuxer over HTTP, AAC→ADTS), sidecar subs |
 | `dp_h264_aac_episode` | `episode_h264_aac` | H264 + AAC direct-play, TV episode, no subs |
@@ -594,7 +596,7 @@ Operation cases (each also re-checks not-stuck / no-error afterward):
 | `resume_directplay` | `movie_h264_ac3_1080p` | viewOffset 600s honored — first `timeline` near 600s, not 0 |
 | `resume_transcode` | `movie_av1_no_dp_audio` | `resume(transcode): restart at offset 600s`, first timeline near 600s |
 | `audio_switch_native` | `episode_hevc_4k_hdr10_eac3` | native audio switch (eac3→eac3) — `route transition: native audio idx=` (older logs: `audio switch (native)`), codec **stays 174** |
-| `audio_switch_transcode` | `movie_h264_ac3_many_audio` | English (TrueHD) audio → transcode — `re-transcode` + `reload_transcode`, codec 174 (HEVC target; the video is re-encoded H264→HEVC — an audio-only/video-copy transcode is a future improvement) |
+| `audio_switch_transcode` | `movie_h264_ac3_many_audio` | English (MP2) audio → transcode — `re-transcode` + `reload_transcode`, codec 174 (HEVC target; the video is re-encoded H264→HEVC — an audio-only/video-copy transcode is a future improvement) |
 | `subtitle_text_srt` | `movie_h264_ac3_1080p` | embedded subtitle soft-render on the **default `ff.rs` demuxer** — `sub cue [..] len=<n>` lines |
 | `subtitle_image_pgs` | `movie_hevc_4k_pgs_subs` | **PGS image subtitle** client-render on HEVC 4K direct-play — `ff.rs` software-decodes the bitmap and logs `image cue [..] WxH at X,Y rects=N canvas=WxH` (op flagged `"image": true`) |
 
@@ -933,8 +935,9 @@ secondary to the real item shapes, and still to be labelled synthetic:
   fixture landed; the matrix widened the raster spread rather than closing the gap. Both caveats
   are the same one: these are generated clips, so what neither reaches is the half the entries were
   really about — a **PMS decision** on such an item. That still needs a real one.
-- **Audio:** FLAC, PCM/LPCM, MP3; a TrueHD-only file to force an audio-only transcode without
-  depending on the many-audio movie's track ordering.
+- **Audio:** FLAC and PCM/LPCM direct plays (converted to AC-3 on the TV), MP3; a file whose only
+  audio the converter refuses (a 96 kHz rate) to force an audio-only transcode without depending on
+  the many-audio movie's track ordering.
 - **Subtitles:** ASS/SSA, VobSub/dvd_subtitle; mov_text/tx3g soft-render.
 - **HDR:** HLG, HDR10+. **Dolby Vision P5 and P7 are a different kind of gap — the items exist and
   the missing thing is a CASE.** This entry used to read "the only item carrying [P5] is mp4, which

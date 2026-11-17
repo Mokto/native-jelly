@@ -147,8 +147,13 @@ fi
 #              h264/hevc are the raw Annex-B paths (/tmp/sample.h264 and the dev triggers).
 #   parsers    needed by avformat_find_stream_info to fill AVCodecParameters.
 #   bsf        AVCC -> Annex-B for mp4-family video, which the Starfish pipeline requires.
-#   decoders   SUBTITLES ONLY. Video and audio are decoded by the TV's hardware via Starfish;
-#              FFmpeg here never touches a video frame.
+#   decoders   subtitles, and the lossless/raw AUDIO formats the TV's decoder refuses (TrueHD,
+#              FLAC, ALAC, Vorbis, LPCM). Video, and audio the pipeline takes as it is, are decoded
+#              by the TV's hardware via Starfish; FFmpeg here never touches a video frame.
+#   encoder    ac3: those refused audio formats are re-encoded to AC3 on the television
+#              (`ff_audio_convert.rs`), so a TrueHD remux direct-plays instead of making the server
+#              convert its audio. Shipped in RELEASE too. Measured on the webOS 6.5.3 set
+#              (2026-11-17): TrueHD 7.1 -> AC3 5.1 640k costs ~14 % of one Cortex-A55 core.
 #   encoder/   mpeg1video + mpegts are the DEV capture stream only, dropped by RELEASE=1 along
 #   muxer      with swscale, which nothing else uses.
 #
@@ -175,8 +180,8 @@ fi
 if [ -n "$HOST" ]; then
   # No --arch/--cpu/--target-os: configure detects this Mac, which is the point.
   set -- --prefix=/plx
-  # An x86_64 Linux desktop without nasm: configure refuses outright otherwise, and the demuxers,
-  # parsers and subtitle decoders this list builds have no asm worth keeping.
+  # An x86_64 Linux desktop without nasm: configure refuses outright otherwise. The host build
+  # serves the simulator and the fixture tests, where asm speed does not matter.
   if [ "$(uname -m)" = x86_64 ] && ! command -v nasm >/dev/null 2>&1; then
     set -- "$@" --disable-x86asm
   fi
@@ -196,9 +201,11 @@ set -- "$@" \
   --disable-autodetect \
   --enable-zlib \
   --enable-demuxer=matroska,mov,mpegts,h264,hevc \
-  --enable-parser=h264,hevc,aac,ac3,dvdsub,dvbsub \
+  --enable-parser=h264,hevc,aac,ac3,dvdsub,dvbsub,mlp,flac \
   --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,extract_extradata \
   --enable-decoder=pgssub,dvdsub,dvbsub,ass,srt,subrip,text,mov_text,webvtt \
+  --enable-decoder=truehd,mlp,flac,alac,vorbis,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_bluray,pcm_dvd \
+  --enable-encoder=ac3 \
   --enable-protocol=file
 
 if [ "${RELEASE:-}" = "1" ]; then

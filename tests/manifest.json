@@ -1482,11 +1482,11 @@
       "name": "dp_hevc_truehd_ac3_sibling",
       "item": "movie_hevc_4k_hdr10_truehd",
       "kind": "movie",
-      "title": "movie · hevc 4K HDR10 · truehd default + ac3 sibling (smart direct-play)",
+      "title": "movie · hevc 4K HDR10 · truehd default converted to AC3 on the TV (direct play)",
       "covers": [
         "smart-dp",
         "hevc-4k-hdr10",
-        "truehd-default->ac3-sibling",
+        "truehd-converted-ac3",
         "anchor"
       ],
       "run_secs": 60,
@@ -1856,11 +1856,11 @@
       "name": "audio_switch_transcode",
       "item": "movie_h264_ac3_many_audio",
       "kind": "movie",
-      "title": "movie · h264/ac3 · 1080p · 8 audio tracks — switch to the English truehd track (forces transcode)",
+      "title": "movie · h264/ac3 · 1080p · 8 audio tracks — switch to the English MP2 track (forces transcode)",
       "covers": [
         "audio-switch-transcode",
         "lang-forces-transcode",
-        "truehd-target"
+        "mp2-target"
       ],
       "run_secs": 70,
       "operations": [

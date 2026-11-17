@@ -1044,6 +1044,17 @@ fn audio_payload_codec(codec: &str) -> Option<(&'static str, u8)> {
     }
 }
 
+/// The Load's audio declaration for a streamed track: the pipeline's own name for audio it decodes
+/// ([`audio_payload_codec`]), else AC-3 when this attempt converts the track on the television
+/// (`ff_audio_convert.rs`; `converted` is then true), else `None` — a codec the Load cannot name.
+fn load_audio_codec(codec: &str, caps: &nj_platform::devcaps::Caps) -> Option<(&'static str, u8, bool)> {
+    match audio_payload_codec(codec) {
+        Some((name, diagnostic)) => Some((name, diagnostic, false)),
+        None if caps.converts_audio(codec) => Some(("AC3", 1, true)),
+        None => None,
+    }
+}
+
 /// One shared identification-header definition for the Load and demux guard.
 fn opus_head(channels: i64) -> Option<Vec<u8>> {
     crate::ff::opus_head(channels)
@@ -1630,11 +1641,14 @@ fn start_bufferfeed_inner(
             // wrong string leaves the audio ES unconfigured, and with audioSync the video
             // sink slaves to the dead audio clock and stalls (verified: video-only plays).
             let codec = crate::route::stream_acodec(ps);
-            let Some((ac, diagnostic)) = audio_payload_codec(&codec) else {
+            let Some((ac, diagnostic, converted)) = load_audio_codec(&codec, &crate::route::attempt_caps(ps)) else {
                 log(&format!("start_bufferfeed: unsupported audio codec {codec:?}; refusing incorrect Load declaration"));
                 SHARED.demux_failed.store(true, Ordering::Release);
                 return Err(crate::route::RouteStartResult::StartFailed);
             };
+            if converted {
+                log(&format!("start_bufferfeed: {codec} audio is converted to AC3 on the television"));
+            }
             SHARED.dg_load_a.store(diagnostic, Ordering::Relaxed);
             audio_declared = ac;
             // The sink envelope — `adaptiveStreaming`'s maxWidth/maxHeight/maxFrameRate — used
@@ -5806,6 +5820,16 @@ mod sink_envelope_tests {
         let ps = crate::route::PlaybackSession::IDLE;
         let payload = build_av_payload(&ps, "H264", "DTS", ENVELOPE_FHD60);
         assert!(payload.contains(r#""audio":"DTS""#));
+    }
+
+    #[test]
+    fn converted_audio_is_declared_as_ac3_only_with_the_converter() {
+        let on = nj_platform::devcaps::Caps { audio_converter: true, ..nj_platform::devcaps::Caps::assumed() };
+        assert_eq!(load_audio_codec("truehd", &on), Some(("AC3", 1, true)));
+        assert_eq!(load_audio_codec("pcm_s24le", &on), Some(("AC3", 1, true)));
+        assert_eq!(load_audio_codec("eac3", &on), Some(("AC3 PLUS", 2, false)), "native audio is never converted");
+        assert_eq!(load_audio_codec("truehd", &nj_platform::devcaps::Caps::assumed()), None);
+        assert_eq!(load_audio_codec("unknown", &on), None);
     }
 
     #[test]

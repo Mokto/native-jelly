@@ -217,7 +217,7 @@ Sign-in asks for the Jellyfin server address on the television, then a password 
 
 The package contains three FFmpeg shared libraries — `libavformat-plx.so.63`, `libavcodec-plx.so.63`, and `libavutil-plx.so.61` — built from **FFmpeg 9.0**, unmodified, and licensed **LGPL-2.1-or-later**.
 
-They contain demuxers, parsers, bitstream filters, and subtitle decoders only: video and audio are decoded by the television's own hardware.
+They contain demuxers, parsers, bitstream filters, subtitle decoders, and the lossless and raw audio decoders with an AC-3 encoder: TrueHD, FLAC or PCM audio is converted to AC-3 on the television, and everything else is decoded by its own hardware.
 
 The complete corresponding source accompanies every release, as LGPL-2.1 §6 requires and not as a courtesy: `ffmpeg-9.0.tar.xz` is the pristine upstream tarball with no patches applied, and `build-ffmpeg.sh` is the complete configure invocation that produced the libraries.
 

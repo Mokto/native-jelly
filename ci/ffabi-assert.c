@@ -24,6 +24,7 @@
 #include <libavcodec/bsf.h>
 #include <libavutil/frame.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/samplefmt.h>
 #include <libavutil/dovi_meta.h>
 #include <libavutil/mastering_display_metadata.h>
 #include <libavutil/dict.h>
@@ -104,6 +105,13 @@ SAME32(offsetof(AVFrame, height), 72, "OFF_FRAME_HEIGHT != 72");
 SAME64(offsetof(AVFrame, height), 108, "OFF_FRAME_HEIGHT != 72 [host]");
 SAME32(offsetof(AVFrame, format), 80, "OFF_FRAME_FORMAT != 80");
 SAME64(offsetof(AVFrame, format), 116, "OFF_FRAME_FORMAT != 80 [host]");
+/* The audio fields, read and written by the audio converter. */
+SAME32(offsetof(AVFrame, nb_samples), 76, "OFF_FRAME_NB_SAMPLES != 76");
+SAME64(offsetof(AVFrame, nb_samples), 112, "OFF_FRAME_NB_SAMPLES != 76 [host]");
+SAME32(offsetof(AVFrame, sample_rate), 132, "OFF_FRAME_SAMPLE_RATE != 132");
+SAME64(offsetof(AVFrame, sample_rate), 180, "OFF_FRAME_SAMPLE_RATE != 132 [host]");
+SAME32(offsetof(AVFrame, ch_layout), 256, "OFF_FRAME_CH_LAYOUT != 256");
+SAME64(offsetof(AVFrame, ch_layout), 384, "OFF_FRAME_CH_LAYOUT != 256 [host]");
 /* +96 on FFmpeg 9, +104 on 6 and on the n3.3 the TVs ship — AVFrame lost fields ahead of it.
    Still 8-aligned by an ARM EABI pad, which is the classic AVFrame-on-ARM trap and the one most
    likely to be got wrong by reading a struct definition on a 64-bit machine. This assertion is
@@ -172,6 +180,41 @@ SAME64(offsetof(AVCodecParameters, sample_rate), 152, "AVCodecParameters.sample_
 SAME32(offsetof(AVCodecParameters, ch_layout), 112, "AVCodecParameters.ch_layout moved");
 SAME64(offsetof(AVCodecParameters, ch_layout), 128, "AVCodecParameters.ch_layout moved [host]");
 SAME(offsetof(AVChannelLayout, nb_channels), 4, "AVChannelLayout.nb_channels moved");
+/* The audio converter (ff_audio_convert.rs) reads the layout's order and mask, writes a whole
+   AVChannelLayout into an AVFrame, and reads the AC-3 encoder's frame_size back. */
+SAME(offsetof(AVChannelLayout, order), 0, "AVChannelLayout.order moved");
+SAME(offsetof(AVChannelLayout, u), 8, "AVChannelLayout.u (mask) moved");
+SAME(offsetof(AVChannelLayout, opaque), 16, "AVChannelLayout.opaque moved");
+SAME(sizeof(AVChannelLayout), 24, "sizeof(AVChannelLayout) != 24");
+SAME(AV_CHANNEL_ORDER_UNSPEC, 0, "AV_CHANNEL_ORDER_UNSPEC renumbered");
+SAME(AV_CHANNEL_ORDER_NATIVE, 1, "AV_CHANNEL_ORDER_NATIVE renumbered");
+SAME32(offsetof(AVCodecParameters, frame_size), 144, "AVCodecParameters.frame_size moved");
+SAME64(offsetof(AVCodecParameters, frame_size), 160, "AVCodecParameters.frame_size moved [host]");
+/* Every sample format ff_audio_convert.rs's `fmt` module names, and every channel bit it maps. */
+SAME(AV_SAMPLE_FMT_U8, 0, "AV_SAMPLE_FMT_U8 renumbered");
+SAME(AV_SAMPLE_FMT_S16, 1, "AV_SAMPLE_FMT_S16 renumbered");
+SAME(AV_SAMPLE_FMT_S32, 2, "AV_SAMPLE_FMT_S32 renumbered");
+SAME(AV_SAMPLE_FMT_FLT, 3, "AV_SAMPLE_FMT_FLT renumbered");
+SAME(AV_SAMPLE_FMT_DBL, 4, "AV_SAMPLE_FMT_DBL renumbered");
+SAME(AV_SAMPLE_FMT_U8P, 5, "AV_SAMPLE_FMT_U8P renumbered");
+SAME(AV_SAMPLE_FMT_S16P, 6, "AV_SAMPLE_FMT_S16P renumbered");
+SAME(AV_SAMPLE_FMT_S32P, 7, "AV_SAMPLE_FMT_S32P renumbered");
+SAME(AV_SAMPLE_FMT_FLTP, 8, "AV_SAMPLE_FMT_FLTP renumbered");
+SAME(AV_SAMPLE_FMT_DBLP, 9, "AV_SAMPLE_FMT_DBLP renumbered");
+SAME(AV_SAMPLE_FMT_S64, 10, "AV_SAMPLE_FMT_S64 renumbered");
+SAME(AV_SAMPLE_FMT_S64P, 11, "AV_SAMPLE_FMT_S64P renumbered");
+SAME(AV_CH_FRONT_LEFT, 1ULL << 0, "AV_CH_FRONT_LEFT moved");
+SAME(AV_CH_FRONT_RIGHT, 1ULL << 1, "AV_CH_FRONT_RIGHT moved");
+SAME(AV_CH_FRONT_CENTER, 1ULL << 2, "AV_CH_FRONT_CENTER moved");
+SAME(AV_CH_LOW_FREQUENCY, 1ULL << 3, "AV_CH_LOW_FREQUENCY moved");
+SAME(AV_CH_BACK_LEFT, 1ULL << 4, "AV_CH_BACK_LEFT moved");
+SAME(AV_CH_BACK_RIGHT, 1ULL << 5, "AV_CH_BACK_RIGHT moved");
+SAME(AV_CH_FRONT_LEFT_OF_CENTER, 1ULL << 6, "AV_CH_FRONT_LEFT_OF_CENTER moved");
+SAME(AV_CH_FRONT_RIGHT_OF_CENTER, 1ULL << 7, "AV_CH_FRONT_RIGHT_OF_CENTER moved");
+SAME(AV_CH_BACK_CENTER, 1ULL << 8, "AV_CH_BACK_CENTER moved");
+SAME(AV_CH_SIDE_LEFT, 1ULL << 9, "AV_CH_SIDE_LEFT moved");
+SAME(AV_CH_SIDE_RIGHT, 1ULL << 10, "AV_CH_SIDE_RIGHT moved");
+SAME(AV_CH_LAYOUT_5POINT1, 0x60F, "AV_CH_LAYOUT_5POINT1 is not FL FR FC LFE SL SR");
 
 /* --- AVPacketSideData: one entry of the list above. `size` is a size_t, so the whole struct is
        12 bytes on 32-bit ARM and 24 on the 64-bit host — ff.rs spells that field `usize` so the

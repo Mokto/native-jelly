@@ -94,7 +94,10 @@ Built by `device_profile(&Capabilities, &ProfileAsk)`:
 
 * `DirectPlayProfiles`: containers `mkv,mp4,m4v,mov`; video = pipeline codecs the SoC decodes
   (`h264`, `hevc` where measured); audio = pipeline codecs the device table lists (`aac`, `ac3`,
-  `eac3`, `dts` where present).
+  `eac3`, `dts` where present), then `devcaps::CONVERTED_AUDIO_CODECS` (TrueHD, FLAC, PCM and the
+  rest, converted to AC-3 on the television by `ff_audio_convert.rs`) when this attempt's converter
+  loaded, each bounded at 8 channels by a CodecProfile, in both the Auto and the Forced ask. They
+  are never a transcoding target.
 * `TranscodingProfiles`: progressive `mkv` over `http`, `Context: Streaming`, video target
   `h264,hevc` (or `h264`), audio target the decodable surround codecs then AAC. The server encodes
   to the head of each list after moving to the end what it will not pick
@@ -336,7 +339,8 @@ Playing/Paused/Stopped reports, a 30 s-offset re-encode and its stop, and an HLS
 offset: master, media playlist, the covering segment, and its stop.
 
 On the television (not automated — see the `which-tier` skill): direct play of H.264/HEVC in
-MKV/MP4; a TrueHD film (audio-only conversion, track switch mid-play); a remux; a 4K re-encode
+MKV/MP4; a TrueHD film (converted to AC-3 on the set; track switch mid-play), and one whose rate or
+layout the converter refuses (audio-only server conversion through the open recovery); a remux; a 4K re-encode
 under a fixed rung; seek during a conversion; resume of a converted film (Continue Watching must
 keep its position); external SRT and embedded PGS; Dolby Vision Profile 5/8; pause/resume; stop and
 the server's resume point; next episode; a user without transcoding permission (`NotAllowed`).

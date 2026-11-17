@@ -48,8 +48,10 @@ repository, which is also attached to each release.
 
 **Configuration.** Built with `--disable-everything` plus an explicit component list, **without**
 `--enable-gpl`, `--enable-version3` or `--enable-nonfree`, so no GPL-licensed or non-free FFmpeg
-component is present. Only demuxers, parsers, bitstream filters and *subtitle* decoders are
-enabled — video and audio are decoded by the television's hardware, not by FFmpeg. The one
+component is present. Only demuxers, parsers, bitstream filters, subtitle decoders, the lossless
+and raw audio decoders (TrueHD/MLP, FLAC, ALAC, Vorbis, PCM) and the AC-3 encoder are enabled.
+Video, and audio the television takes as it is, are decoded by its hardware; audio it cannot decode
+is decoded by this FFmpeg and re-encoded to AC-3 on the set. The one
 external library enabled is **zlib**, the television's own `libz.so.1` (not redistributed — see
 section 3), which the Matroska demuxer needs to inflate compressed subtitle tracks.
 

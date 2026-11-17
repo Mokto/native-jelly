@@ -6,7 +6,7 @@ WHY THIS EXISTS. `tests/run.py` grades the player against nine symbolic *item sh
 maps each to a ratingKey on whatever PMS the contributor owns. That mapping is the whole
 barrier to entry: the shapes include a TrueHD default with an AC-3 sibling, a Dolby Vision
 profile 8.1 base layer, a PGS bitmap subtitle track and an eight-track audio file with
-English TrueHD at ordinal 6. Nobody has all of that lying around, and two of them (TrueHD,
+English MP2 at ordinal 6. Nobody has all of that lying around, and two of them (TrueHD,
 Dolby Vision) have no freely-licensed example anywhere in the world. So a contributor
 either owns an exotic library or cannot run the suite at all. This script removes that:
 it builds every shape from lavfi sources, lays them out in two Plex-scannable trees, and
@@ -163,7 +163,8 @@ ORDERING IS PART OF THE SPEC — the cases assert track POSITIONS, not just pres
 row 0 is *Off* and row r is subtitle index r-1. So:
 
  * `audio_switch_transcode` picks audio row 6 on `movie_h264_ac3_many_audio` and expects a
-   transcode, so index 6 is the ENGLISH TrueHD track (TrueHD is outside the direct-play set).
+   transcode, so index 6 is the ENGLISH MP2 track (MP2 is neither decoded by the TV nor converted
+   by the app; TrueHD stopped being a transcode when the app began converting it to AC-3).
  * `audio_switch_native` picks audio row 1 on `episode_hevc_4k_hdr10_eac3` and expects a
    NATIVE switch, and its title says "foreign default + eng … file default picked at start".
    So index 0 is a German E-AC-3 track carrying the default disposition and index 1 is the
@@ -749,7 +750,7 @@ def venc_args(v):
 
 AENC = {
     "ac3": ["ac3"], "eac3": ["eac3"], "aac": ["aac"], "truehd": ["truehd"],
-    "dts": ["dca"], "vorbis": ["vorbis"], "opus": ["libopus"], "flac": ["flac"],
+    "dts": ["dca"], "vorbis": ["vorbis"], "opus": ["libopus"], "flac": ["flac"], "mp2": ["mp2"],
 }
 
 
@@ -868,7 +869,7 @@ SHAPES = {
         "kind": "movie", "library_title": "PlxTest HEVC 4K HDR10 TrueHD (2002)", "ext": "mkv",
         "duration": 90, "rate": 0.58,
         "video": {"codec": "hevc", "size": "3840x2160", "crf": 30, "hdr": True},
-        # The smart-direct-play shape: a TrueHD default the TV cannot take, with an AC-3
+        # A TrueHD default the TV cannot take (the app converts it to AC-3 on the set), with an AC-3
         # sibling it can. No freely-licensed TrueHD exists anywhere; ffmpeg's own encoder
         # (experimental, hence the global -strict -2) is the only way to get this shape.
         "audio": [{"codec": "truehd", "ch": 6, "lang": "eng", "pitch": 220,
@@ -927,7 +928,7 @@ SHAPES = {
         "duration": 120, "rate": 0.08,
         "video": {"codec": "h264", "size": "1920x1080", "crf": 25},
         # EIGHT tracks, and the ORDER is asserted: audio_switch_transcode picks row 6 and
-        # expects a transcode, so index 6 is English TrueHD (outside the direct-play set).
+        # expects a transcode, so index 6 is English MP2 (neither native nor converted to AC-3).
         "audio": [
             {"codec": "ac3", "ch": 6, "lang": "eng", "br": "448k", "pitch": 200,
              "default": True, "title": "AC-3 5.1 English"},
@@ -941,8 +942,8 @@ SHAPES = {
              "title": "AC-3 5.1 Francais"},
             {"codec": "aac", "ch": 2, "lang": "deu", "br": "256k", "pitch": 450,
              "title": "AAC 2.0 Deutsch"},
-            {"codec": "truehd", "ch": 6, "lang": "eng", "pitch": 500,
-             "title": "TrueHD 5.1 English"},
+            {"codec": "mp2", "ch": 2, "lang": "eng", "br": "256k", "pitch": 500,
+             "title": "MP2 2.0 English"},
             {"codec": "vorbis", "ch": 2, "lang": "jpn", "pitch": 550,
              "title": "Vorbis 2.0 Japanese"},
         ],
@@ -1005,9 +1006,11 @@ QUICK_SECS = 20
 #
 # WHAT THIS TIER DELIBERATELY DOES NOT CONTAIN, written down so nobody adds it back as an
 # oversight — each of the three looks like an obvious gap and is not:
-#   * TrueHD / Atmos. The correct LG Load-payload audio string for TrueHD does not exist
-#     anywhere in this repo, so the shape could not be DECLARED — and the declaration is
-#     this tier's entire subject. A `declare` that is a guess grades a guess.
+#   * TrueHD / Atmos. LG's pipeline has no Load-payload audio string for TrueHD; the app
+#     converts it to AC-3 itself (`ff_audio_convert.rs`) and declares `AC3`, so a TrueHD
+#     shape here would grade the app's converter, not a television codec — and this tier's
+#     subject is the declaration. The converter is graded by `make check-ffmpeg` and the
+#     `dp_hevc_truehd_ac3_sibling` case instead.
 #   * PGS and SRT subtitles. The demuxer would carry them, but the `sub cue` / `image cue`
 #     log lines a case would grade sit behind `desired_sub_idx`, which only the Plex path
 #     ever writes — so a subtitle case down here would assert nothing at all.
@@ -1064,8 +1067,9 @@ PIPE_SHAPES = {
         "duration": PIPE_SECS, "rate": 0.65,
         # The AC-3 track beside it is not decoration: `H265 + AC3` is one of the six Load payload
         # combinations the player can direct-play, and it was the LAST one this tier could not
-        # reach — covered on the server tier only, by the TrueHD-default-falls-back-to-its-AC-3-
-        # sibling case, i.e. by a library shape almost nobody owns. Two tracks in one file make
+        # reach — covered on the server tier only, by the TrueHD-default + AC-3-sibling shape
+        # (whose default the app now converts, so even that no longer feeds the sibling), i.e. by
+        # a library shape almost nobody owns. Two tracks in one file make
         # it a declaration away instead of a fixture away. `declare` still names the E-AC-3 lane;
         # the case that wants the other one overrides `acodec` and reads a=#2.
         "declare": {"vcodec": "hevc", "acodec": "eac3", "fps": float(FPS), "atmos": False},
@@ -2050,7 +2054,7 @@ def _xml_escape(s):
 # ---------------------------------------------------------------------------------------
 VCODEC_NAME = {"h264": "h264", "hevc": "hevc", "av1": "av1", "vp9": "vp9"}
 ACODEC_NAME = {"ac3": "ac3", "eac3": "eac3", "aac": "aac", "truehd": "truehd",
-               "dts": "dts", "vorbis": "vorbis", "opus": "opus", "flac": "flac"}
+               "dts": "dts", "vorbis": "vorbis", "opus": "opus", "flac": "flac", "mp2": "mp2"}
 
 
 def _rate(s):

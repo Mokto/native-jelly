@@ -13,7 +13,8 @@ Direct Play defaults to **Auto**, which uses device capabilities and normal rout
 **Disabled** excludes original-file playback while allowing a remux or transcode.
 **Force Direct Play (advanced)** attempts original playback through supported engine paths,
 overrides the saved quality and disables automatic remux/transcode fallback. It does not add
-codec implementations or a TrueHD path. It cannot guarantee that the TV accepts a stream.
+codec implementations of its own: TrueHD and the other formats the app converts to AC-3 play under
+Force exactly as under Auto. It cannot guarantee that the TV accepts a stream.
 
 Entering Force requires an explicit acknowledgement, initially focused on Cancel. The warning
 names missing sound, incorrect pictures, freezes, crashes and the possibility that the app

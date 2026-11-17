@@ -5,9 +5,11 @@
 //!
 //! This module is THE media demuxer: robust MKV/MP4/TS demux, HTTP input, and
 //! index-based seeking (av_seek_frame). Design record: docs/ffmpeg-demuxer-plan.md.
-//! It also owns the ONE encode path (`venc`, near the end of the file): the dev
-//! capture stream's MPEG1 + MPEG-TS muxer, kept here because every FFmpeg ABI
-//! detail — struct offsets, AVOption names, custom AVIO — belongs in one module.
+//! It also owns both encode paths, kept here because every FFmpeg ABI detail —
+//! struct offsets, AVOption names, custom AVIO — belongs in one module: `venc`
+//! (near the end of the file), the dev capture stream's MPEG1 + MPEG-TS muxer,
+//! whose encoder RELEASE=1 drops; and `audio_convert` (`ff_audio_convert.rs`),
+//! the shipping AC-3 encoder that turns audio the TV refuses into AC-3.
 //! The struct layouts below are the FFmpeg n3.3 ABI, confirmed on-device by the
 //! Phase A probe (/tmp/nativejelly-ffprobe logs codec_id/width/height for a known title).
 #![allow(dead_code)]
@@ -473,6 +475,10 @@ nj_base::dynlib! {
     fn avcodec_receive_packet(ctx: *mut AVCodecContext, pkt: *mut AVPacket) -> c_int;
     fn avcodec_parameters_from_context(par: *mut AVCodecParameters, ctx: *const AVCodecContext) -> c_int;
     fn av_packet_rescale_ts(pkt: *mut AVPacket, tb_src: AVRational, tb_dst: AVRational);
+    // Audio conversion (`ff_audio_convert.rs`): decode the formats the TV refuses.
+    fn avcodec_send_packet(ctx: *mut AVCodecContext, pkt: *const AVPacket) -> c_int;
+    fn avcodec_receive_frame(ctx: *mut AVCodecContext, frame: *mut c_void) -> c_int;
+    fn avcodec_flush_buffers(ctx: *mut AVCodecContext);
 }}
 nj_base::dynlib! {
     // avformat_version lives in libavformat, not libavutil — but it was declared here and the
@@ -496,6 +502,7 @@ nj_base::dynlib! {
     fn av_frame_free(frame: *mut *mut c_void);
     fn av_frame_get_buffer(frame: *mut c_void, align: c_int) -> c_int;
     fn av_frame_make_writable(frame: *mut c_void) -> c_int;
+    fn av_frame_unref(frame: *mut c_void);
     fn av_opt_set(obj: *mut c_void, name: *const c_char, val: *const c_char, search_flags: c_int) -> c_int;
     fn av_get_pix_fmt(name: *const c_char) -> c_int;
     // Container tags. Borrowed, never freed: the entry belongs to the dictionary, which belongs to
@@ -854,6 +861,20 @@ const OFF_FRAME_HEIGHT: usize = 108;
 const OFF_FRAME_FORMAT: usize = 116;
 #[cfg(target_pointer_width = "64")]
 const OFF_FRAME_PTS: usize = 136;
+// The audio half of AVFrame, read and written by `ff_audio_convert.rs`. Proven per width by
+// ci/ffabi-assert.c like the rest.
+#[cfg(target_pointer_width = "32")]
+const OFF_FRAME_NB_SAMPLES: usize = 76;
+#[cfg(target_pointer_width = "32")]
+const OFF_FRAME_SAMPLE_RATE: usize = 132;
+#[cfg(target_pointer_width = "32")]
+const OFF_FRAME_CH_LAYOUT: usize = 256;
+#[cfg(target_pointer_width = "64")]
+const OFF_FRAME_NB_SAMPLES: usize = 112;
+#[cfg(target_pointer_width = "64")]
+const OFF_FRAME_SAMPLE_RATE: usize = 180;
+#[cfg(target_pointer_width = "64")]
+const OFF_FRAME_CH_LAYOUT: usize = 384;
 const SWS_BILINEAR: c_int = 2;
 const VENC_TB: AVRational = AVRational { num: 1, den: 30 };
 
@@ -1686,6 +1707,11 @@ pub(crate) fn boot() {
                  libav*-plx; refusing to demux",
             );
         }
+        // The audio converter needs the ABI above and an AC-3 encoder in the build; each source
+        // decoder is checked when a track is opened (`ff_audio_convert.rs`).
+        let converter = !bad && !avcodec_find_encoder_by_name(b"ac3\0".as_ptr() as *const c_char).is_null();
+        nj_platform::devcaps::set_audio_converter(converter);
+        crate::player::log(&format!("ff: audio converter (lossless -> AC3) {}", if converter { "on" } else { "off" }));
     }
     // Phase A dev trigger: /tmp/nativejelly-ffprobe holds a media URL to open + dump streams,
     // confirming the FFmpeg-3.3 struct offsets against known media before we build on them.
@@ -1986,6 +2012,8 @@ fn arm_active_stall_guard(
 // `Active { stall: None, .. }` by hand even with the role-typed enum in place).
 #[path = "ff_acquisition.rs"]
 mod acquisition;
+#[path = "ff_audio_convert.rs"]
+mod audio_convert;
 use acquisition::{AcquisitionRuntime, Phase, SegmentAcquisition};
 
 /// A rollback-reserve deadline is monotone in one direction: a floor downshift that reaches an
@@ -9273,6 +9301,27 @@ pub(crate) fn demux(
                         break;
                     }
                 }
+                // Audio the television cannot decode, which the route carries for the converter
+                // and the Load declared as AC-3 (`ff_audio_convert.rs`). A track it cannot open is
+                // refused before anything is fed, through the door a refused Opus header uses, so
+                // the open recovery converts it on the server instead.
+                let mut converter: Option<audio_convert::Converter> = None;
+                if ai >= 0 && FEED_AUDIO.load(Ordering::Relaxed) && audio_convert::wants_conversion(&acodec) {
+                    match audio_convert::Converter::open(stream_codecpar(*streams.add(ai as usize))) {
+                        Ok(c) => {
+                            crate::player::log(&format!("ff: audio convert on: {}", c.desc));
+                            converter = Some(c);
+                        }
+                        Err(why) => {
+                            crate::player::log(&format!("ff: audio convert refused: {why}"));
+                            SHARED.native_audio_header_refused.store(true, Ordering::Release);
+                            SHARED.demux_failed.store(true, Ordering::Release);
+                            avformat_close_input(&mut fmt);
+                            free_avio(avio);
+                            break;
+                        }
+                    }
+                }
                 let vst = *streams.add(vi as usize);
                 let vcp = stream_codecpar(vst);
                 // AAC needs ADTS framing for LG's decoder (mp4/mkv carry raw AAC). Precompute the
@@ -9578,6 +9627,9 @@ pub(crate) fn demux(
                         ));
                         headroom.restart(aq_p);
                         SHARED.first_audio_pts.store(i64::MIN, Ordering::Release);
+                        if let Some(conv) = converter.as_mut() {
+                            conv.reset();
+                        }
                     }
                     let r = av_read_frame(fmt, pkt);
                     if frame_read_failed(&mut state, r) {
@@ -9690,97 +9742,134 @@ pub(crate) fn demux(
                     } else if si == ai && FEED_AUDIO.load(Ordering::Relaxed) {
                         let ast = *streams.add(ai as usize);
                         let pts = pts_ns(pkt, ast);
-                        if headroom.first_audio_ns.is_none() {
-                            // Before the push, so the feed thread that pops this AU sees it: the
-                            // audio lane feeds a late-starting track's first AU on this mark.
-                            SHARED.first_audio_pts.store(pts, Ordering::Release);
-                        }
-                        // The audio lane runs past its soft cap while the video lane is starved
-                        // ([`AUDIO_AHEAD_HEADROOM`]); the gate is what makes that decision, here.
-                        let gate = audio_push_gate(aq_p, headroom.video_reach_ns());
-                        let pushed = if let Some((freq_idx, chan_cfg)) = aac_adts {
+                        // The access units this packet becomes, each with its content time: one
+                        // reframed or verbatim packet for audio the pipeline decodes, or the AC-3
+                        // frames the converter finished (none while it fills a frame).
+                        let mut converted: Vec<(i64, Vec<u8>)> = Vec::new();
+                        let framed: Option<Vec<u8>> = if let Some(conv) = converter.as_mut() {
+                            if let Err(why) = conv.push(pkt, pts_ns_opt(pkt, ast), &mut converted) {
+                                crate::player::log(&format!("ff: audio convert: {why}; refusing audio feed"));
+                                if headroom.first_audio_ns.is_none() {
+                                    // Nothing fed yet: the open recovery's to convert on the server.
+                                    SHARED.native_audio_header_refused.store(true, Ordering::Release);
+                                } else {
+                                    SHARED.demux_io_failed.store(true, Ordering::Release);
+                                }
+                                SHARED.demux_failed.store(true, Ordering::Release);
+                                av_packet_unref(pkt);
+                                break;
+                            }
+                            None
+                        } else if let Some((freq_idx, chan_cfg)) = aac_adts {
                             // prepend a 7-byte ADTS header so LG's decoder can frame the raw AAC
                             let plen = (*pkt).size as usize;
                             let mut framed = Vec::with_capacity(7 + plen);
                             framed.extend_from_slice(&adts_header(freq_idx, chan_cfg, plen));
                             framed.extend_from_slice(std::slice::from_raw_parts((*pkt).data, plen));
-                            crate::aq::aq_push_gated(
+                            Some(framed)
+                        } else {
+                            None
+                        };
+                        let raw: &[u8] = if (*pkt).data.is_null() {
+                            &[]
+                        } else {
+                            std::slice::from_raw_parts((*pkt).data, (*pkt).size.max(0) as usize)
+                        };
+                        // A DTS core: borrowed from the packet, or rebuilt from a byte-swapped or
+                        // 14-bit packed one.
+                        let dts_core: Option<std::borrow::Cow<'_, [u8]>> =
+                            if converter.is_none() && framed.is_none() && dts_audio {
+                                let Some(core) = dts_core_packet(raw) else {
+                                    crate::player::log("ff: DTS packet has no complete supported core; refusing audio feed");
+                                    SHARED.demux_failed.store(true, Ordering::Release);
+                                    SHARED.demux_io_failed.store(true, Ordering::Release);
+                                    av_packet_unref(pkt);
+                                    break;
+                                };
+                                Some(core)
+                            } else {
+                                None
+                            };
+                        let single: Option<&[u8]> = if converter.is_some() {
+                            None
+                        } else if let Some(framed) = framed.as_deref() {
+                            Some(framed)
+                        } else if let Some(core) = dts_core.as_deref() {
+                            Some(core)
+                        } else {
+                            Some(raw) // AUDIO lane, verbatim
+                        };
+                        let aus: Vec<(i64, &[u8])> = match single {
+                            Some(au) => vec![(pts, au)],
+                            None => converted.iter().map(|(t, b)| (*t, b.as_slice())).collect(),
+                        };
+                        let mut stop = false;
+                        for (pts, au) in aus {
+                            if headroom.first_audio_ns.is_none() {
+                                // Before the push, so the feed thread that pops this AU sees it: the
+                                // audio lane feeds a late-starting track's first AU on this mark.
+                                SHARED.first_audio_pts.store(pts, Ordering::Release);
+                            }
+                            // The audio lane runs past its soft cap while the video lane is starved
+                            // ([`AUDIO_AHEAD_HEADROOM`]); the gate is what makes that decision, here.
+                            let gate = audio_push_gate(aq_p, headroom.video_reach_ns());
+                            let pushed = crate::aq::aq_push_gated(
                                 aqa_p,
-                                framed.as_ptr(),
-                                framed.len() as c_int,
+                                au.as_ptr(),
+                                au.len() as c_int,
                                 pts,
                                 1,
                                 2,
                                 gate,
                                 || state.drain_wire(),
-                            )
-                        } else if dts_audio {
-                            let raw = std::slice::from_raw_parts((*pkt).data, (*pkt).size.max(0) as usize);
-                            let Some(core) = dts_core_packet(raw) else {
-                                crate::player::log("ff: DTS packet has no complete supported core; refusing audio feed");
+                            );
+                            if pushed == crate::aq::PUSH_CEILING {
+                                // The audio lane is at its ceiling, the video lane is starved and the
+                                // video read so far cannot prime the clock: parking would be a spinner
+                                // nobody can leave. Fail the way the video side does, so the route
+                                // recovers (Auto Original -> HLS) or the failure read-out shows.
+                                crate::player::log(&format!(
+                                    "ff: no usable video after {} bytes of audio queued (ceiling {} = base + the {} byte audio headroom; {} ms of video read); failing the stream",
+                                    crate::aq::aq_bytes(aqa_p),
+                                    crate::aq::aq_cap(aqa_p) + AUDIO_AHEAD_HEADROOM,
+                                    AUDIO_AHEAD_HEADROOM,
+                                    headroom.video_reach_ns() / 1_000_000
+                                ));
                                 SHARED.demux_failed.store(true, Ordering::Release);
                                 SHARED.demux_io_failed.store(true, Ordering::Release);
-                                av_packet_unref(pkt);
+                                stop = true;
                                 break;
-                            };
-                            crate::aq::aq_push_gated(
-                                aqa_p, core.as_ptr(), core.len() as c_int, pts, 1, 2, gate,
-                                || state.drain_wire(),
-                            )
-                        } else {
-                            crate::aq::aq_push_gated(
-                                aqa_p,
-                                (*pkt).data,
-                                (*pkt).size,
-                                pts,
-                                1,
-                                2,
-                                gate,
-                                || state.drain_wire(),
-                            )
-                            // AUDIO lane
-                        };
+                            }
+                            if pushed != 0 {
+                                stop = true;
+                                break;
+                            }
+                            let step = headroom.after_audio(pts);
+                            if step.first && headroom.granted {
+                                // The late audio arrived: say how far ahead video had to run.
+                                crate::player::log(&format!(
+                                    "ff: first audio at {}ms after {} bytes of video queued ahead of it",
+                                    pts / 1_000_000,
+                                    crate::aq::aq_bytes(aq_p)
+                                ));
+                            }
+                            if step.release {
+                                // The engine's lead-in is on the audio lane: from here the video lane
+                                // falls back to its base cap as the consumer drains it, never under what
+                                // it holds (see `PRE_AUDIO_VIDEO_HEADROOM`).
+                                crate::aq::aq_release_headroom(aq_p);
+                                crate::player::log(&format!(
+                                    "ff: audio lead-in pushed ({}ms past the first); video headroom released with {} bytes queued",
+                                    (pts - headroom.first_audio_ns.unwrap_or(pts)) / 1_000_000,
+                                    crate::aq::aq_bytes(aq_p)
+                                ));
+                            }
+                            SHARED.hls_audio_tail_ns.store(pts, Ordering::Release);
+                        }
                         av_packet_unref(pkt);
-                        if pushed == crate::aq::PUSH_CEILING {
-                            // The audio lane is at its ceiling, the video lane is starved and the
-                            // video read so far cannot prime the clock: parking would be a spinner
-                            // nobody can leave. Fail the way the video side does, so the route
-                            // recovers (Auto Original -> HLS) or the failure read-out shows.
-                            crate::player::log(&format!(
-                                "ff: no usable video after {} bytes of audio queued (ceiling {} = base + the {} byte audio headroom; {} ms of video read); failing the stream",
-                                crate::aq::aq_bytes(aqa_p),
-                                crate::aq::aq_cap(aqa_p) + AUDIO_AHEAD_HEADROOM,
-                                AUDIO_AHEAD_HEADROOM,
-                                headroom.video_reach_ns() / 1_000_000
-                            ));
-                            SHARED.demux_failed.store(true, Ordering::Release);
-                            SHARED.demux_io_failed.store(true, Ordering::Release);
+                        if stop {
                             break;
                         }
-                        if pushed != 0 {
-                            break;
-                        }
-                        let step = headroom.after_audio(pts);
-                        if step.first && headroom.granted {
-                            // The late audio arrived: say how far ahead video had to run.
-                            crate::player::log(&format!(
-                                "ff: first audio at {}ms after {} bytes of video queued ahead of it",
-                                pts / 1_000_000,
-                                crate::aq::aq_bytes(aq_p)
-                            ));
-                        }
-                        if step.release {
-                            // The engine's lead-in is on the audio lane: from here the video lane
-                            // falls back to its base cap as the consumer drains it, never under what
-                            // it holds (see `PRE_AUDIO_VIDEO_HEADROOM`).
-                            crate::aq::aq_release_headroom(aq_p);
-                            crate::player::log(&format!(
-                                "ff: audio lead-in pushed ({}ms past the first); video headroom released with {} bytes queued",
-                                (pts - headroom.first_audio_ns.unwrap_or(pts)) / 1_000_000,
-                                crate::aq::aq_bytes(aq_p)
-                            ));
-                        }
-                        SHARED.hls_audio_tail_ns.store(pts, Ordering::Release);
                     } else if let Some(sub_pos) =
                         sub_streams.iter().position(|(sidx, _, _)| *sidx == si)
                     {

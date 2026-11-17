@@ -59,6 +59,27 @@ pub mod volume;
 /// (`plex::DP_AUDIO_CODECS`) for the profile string and route's plan.
 pub const DP_AUDIO_CODECS: &str = "aac,ac3,eac3,dts";
 
+/// The AUDIO codecs the app decodes itself and feeds the pipeline as AC-3 (`ff_audio_convert.rs`):
+/// lossless and raw formats no webOS decoder takes. A track in one of these direct-plays instead
+/// of making the server convert its audio, when the bundled converter loaded
+/// ([`Caps::audio_converter`]) and the set decodes AC-3. Names are FFmpeg's, which Jellyfin's
+/// `MediaStream.Codec` repeats. Opus is not here: it has its own staged native feed.
+pub const CONVERTED_AUDIO_CODECS: &str =
+    "truehd,mlp,flac,alac,vorbis,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_bluray,pcm_dvd";
+
+/// The widest source the converter takes: 7.1, folded into AC-3's 5.1.
+pub const CONVERTED_AUDIO_MAX_CHANNELS: u32 = 8;
+
+/// Whether the bundled converter is usable on this run: set once by `ff::boot` after the FFmpeg
+/// ABI check and an AC-3 encoder was found. Folded into every attempt's snapshot by
+/// [`effective_caps`]; the boot snapshot [`caps`] itself is written before FFmpeg loads.
+static AUDIO_CONVERTER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record whether the audio converter is usable (`ff::boot`).
+pub fn set_audio_converter(available: bool) {
+    AUDIO_CONVERTER.store(available, std::sync::atomic::Ordering::Relaxed);
+}
+
 const CAPS_TABLE: &str = "/etc/umediaserver/device_codec_capability_config.json";
 
 /// The decode-capability snapshot the playback stack derives from. `OnceLock` for the same
@@ -123,6 +144,10 @@ pub struct Caps {
     pub opus_max_channels: u32,
     /// Hard exclusions from firmware evidence; apply to Forced mode as well.
     pub native_audio_limits: std::collections::BTreeMap<String, u32>,
+    /// The bundled converter can turn [`CONVERTED_AUDIO_CODECS`] into AC-3 on this run
+    /// ([`set_audio_converter`]). False in `assumed()` and in the table read; [`effective_caps`]
+    /// sets it for a play attempt.
+    pub audio_converter: bool,
 }
 
 /// The value [`caps`] answers before [`probe`] has run: [`Caps::assumed`].
@@ -151,6 +176,7 @@ impl Caps {
             audio_channels: Default::default(),
             opus_max_channels: 0,
             native_audio_limits: Default::default(),
+            audio_converter: false,
         }
     }
 
@@ -161,9 +187,30 @@ impl Caps {
         self.audio.split(',').any(|c| c == id)
     }
 
+    /// Is `codec` audio the app converts to AC-3 itself on this attempt? A refusal recorded for it
+    /// (`native_audio_limits` 0) withdraws it like a native codec.
+    pub fn converts_audio(&self, codec: &str) -> bool {
+        let id = audio_codec_id(codec);
+        self.audio_converter
+            && self.audio_has("ac3")
+            && CONVERTED_AUDIO_CODECS.split(',').any(|c| c == id)
+            && self.native_audio_limits.get(id.as_ref()) != Some(&0)
+    }
+
+    /// The converter's width bound, under any narrower refusal. An unknown width (0) is the
+    /// converter's own to check against the stream it opens; it refuses what it cannot fold.
+    fn converted_width_fits(&self, id: &str, channels: i64) -> bool {
+        let max = self.native_audio_limits.get(id).copied().unwrap_or(CONVERTED_AUDIO_MAX_CHANNELS)
+            .min(CONVERTED_AUDIO_MAX_CHANNELS);
+        channels <= i64::from(max)
+    }
+
     /// Local counterpart of the profile's codec-scoped audio.channels limitations.
     pub fn audio_supports(&self, codec: &str, channels: i64) -> bool {
         let id = audio_codec_id(codec);
+        if self.converts_audio(&id) {
+            return self.converted_width_fits(&id, channels);
+        }
         if !self.audio_has(&id) || self.native_audio_limits.get(id.as_ref())
             .is_some_and(|&max| channels <= 0 || channels > i64::from(max)) {
             return false;
@@ -182,6 +229,9 @@ impl Caps {
         if self.native_audio_limits.get(id.as_ref()) == Some(&0) {
             return false;
         }
+        if self.converts_audio(&id) {
+            return true;
+        }
         if id == "dts" {
             return self.forced_admits_dts();
         }
@@ -192,6 +242,9 @@ impl Caps {
     /// codec needs a stated count, even if its ordinary firmware bound is unknown.
     pub fn forced_supports_audio(&self, codec: &str, channels: i64) -> bool {
         let id = audio_codec_id(codec);
+        if self.converts_audio(&id) {
+            return self.converted_width_fits(&id, channels);
+        }
         self.forced_feeds_audio(&id) && self.native_audio_limits.get(id.as_ref())
             .is_none_or(|&max| channels > 0 && channels <= i64::from(max))
     }
@@ -466,6 +519,7 @@ fn parse(s: &str) -> Option<Caps> {
         audio_channels,
         opus_max_channels,
         native_audio_limits: Default::default(),
+        audio_converter: false,
     })
 }
 
@@ -609,10 +663,12 @@ pub fn learning_firmware() -> Option<(String, String)> {
 /// this one value; [`caps`] itself never changes.
 pub fn effective_caps(rows: &[Refusal]) -> std::sync::Arc<Caps> {
     let boot = caps();
-    match learning_firmware() {
-        Some((_, build)) if !rows.is_empty() => std::sync::Arc::new(boot.minus(rows, &build)),
-        _ => std::sync::Arc::new(boot.clone()),
-    }
+    let mut next = match learning_firmware() {
+        Some((_, build)) if !rows.is_empty() => boot.minus(rows, &build),
+        _ => boot.clone(),
+    };
+    next.audio_converter |= AUDIO_CONVERTER.load(std::sync::atomic::Ordering::Relaxed);
+    std::sync::Arc::new(next)
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -1249,4 +1305,46 @@ mod tests {
         assert!(!caps.opus_fixture_supports(6, true));
     }
 
+
+    /// The audio the app converts itself: TrueHD and friends ride a direct play as AC-3 only when
+    /// the bundled converter loaded AND the set decodes AC-3.
+    #[test]
+    fn converted_audio_needs_the_converter_and_an_ac3_decoder() {
+        let on = Caps { audio_converter: true, ..Caps::assumed() };
+        assert!(on.converts_audio("truehd"));
+        assert!(on.converts_audio("FLAC"), "any spelling");
+        assert!(on.audio_supports("truehd", 8));
+        assert!(on.audio_supports("pcm_s24le", 6));
+        assert!(on.audio_supports("flac", 0), "an unknown width is the converter's to check");
+        assert!(!on.audio_supports("truehd", 9), "nothing past 7.1");
+        assert!(!on.converts_audio("aac"), "native audio is never converted");
+        assert!(!on.converts_audio("opus"), "Opus keeps its own staged feed");
+        let off = Caps::assumed();
+        assert!(!off.converts_audio("truehd"));
+        assert!(!off.audio_supports("truehd", 6));
+        let no_ac3 = Caps { audio_converter: true, audio: "aac".into(), ..Caps::assumed() };
+        assert!(!no_ac3.converts_audio("truehd"), "AC-3 is what the pipeline is fed");
+    }
+
+    /// A refused conversion narrows exactly like a refused native feed, so the recovery's retry and
+    /// a learned row both send the track to the server.
+    #[test]
+    fn a_refusal_narrows_converted_audio_too() {
+        let on = Caps { audio_converter: true, ..Caps::assumed() };
+        let header = on.without_audio("truehd", 0);
+        assert!(!header.converts_audio("truehd"));
+        assert!(!header.audio_supports("truehd", 2));
+        let wide = on.without_audio("truehd", 8);
+        assert!(!wide.audio_supports("truehd", 8));
+        assert!(wide.audio_supports("truehd", 2));
+        assert!(wide.audio_supports("flac", 8), "only the refused codec");
+    }
+
+    #[test]
+    fn force_feeds_converted_audio_as_well() {
+        let on = Caps { audio_converter: true, ..Caps::assumed() };
+        assert!(on.forced_feeds_audio("truehd"));
+        assert!(on.forced_supports_audio("truehd", 8));
+        assert!(!Caps::assumed().forced_feeds_audio("truehd"));
+    }
 }

@@ -1994,12 +1994,15 @@ $(FFMPEG_HOST_STAGED): pkg/%.dylib: $(FFMPEG_HOST_INC)/libavformat/avformat.h ci
 # FFmpeg to call, so a property of `ci/build-ffmpeg.sh`'s COMPONENT LIST (which demuxer features,
 # which decoders) is invisible to it. These tests load the host build of that same list and are
 # `#[ignore]`d in the plain suite; the first is the zlib-compressed PGS track that no configure
-# flag change may silently drop again (`ff_image_subtitle_tests.rs`). macOS only, like the staging.
+# flag change may silently drop again (`ff_image_subtitle_tests.rs`); the last converts real TrueHD,
+# FLAC and LPCM to AC-3 (`ff_audio_convert_tests.rs`). macOS only, like the staging.
 check-ffmpeg: $(FFMPEG_HOST_STAGED)
 	cd rust-modules && CARGO_INCREMENTAL=0 NJ_FFMPEG_DIR=$(CURDIR)/pkg PATH="$$HOME/.cargo/bin:$$PATH" \
 	  cargo +$(RUST_NIGHTLY) test --lib ff::image_subtitle_tests -- --ignored
 	cd rust-modules && CARGO_INCREMENTAL=0 NJ_FFMPEG_DIR=$(CURDIR)/pkg PATH="$$HOME/.cargo/bin:$$PATH" \
 	  cargo +$(RUST_NIGHTLY) test --lib ff::late_audio_tests -- --ignored
+	cd rust-modules && CARGO_INCREMENTAL=0 NJ_FFMPEG_DIR=$(CURDIR)/pkg PATH="$$HOME/.cargo/bin:$$PATH" \
+	  cargo +$(RUST_NIGHTLY) test --lib ff::audio_convert::tests -- --ignored
 
 # The same ABI gate the cross build runs, at the other pointer width. ci/ffabi-assert.c `#if`s on
 # `__SIZEOF_POINTER__` and carries both tables, so this compile is what holds ff.rs's 64-bit
