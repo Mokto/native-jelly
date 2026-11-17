@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub(crate) struct Result {
-    epoch: u32,
-    source: usize,
-    instance: u32,
-    landing: SrcLanding,
-    adapter: Option<Arc<BrowseAdapter>>,
+    pub(super) epoch: u32,
+    pub(super) source: usize,
+    pub(super) instance: u32,
+    pub(super) landing: SrcLanding,
+    pub(super) adapter: Option<Arc<BrowseAdapter>>,
 }
 
 impl std::fmt::Debug for Result {
@@ -33,6 +33,10 @@ struct Wire {
     token_gen: u32,
     name: String,
     what: What,
+    /// The keys of the listed sections that are assorted ([`super::Discovered`]'s flag). Its own
+    /// field so a recorded result without it still decodes, as all-plain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    assorted: Vec<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -57,8 +61,13 @@ pub(crate) fn encode(result: &Result) -> serde_json::Value {
         client: result.instance, token_gen: landing.token_gen, name: landing.name.clone(),
         what: match &landing.what {
             SrcWhat::Sections(list) => What::Sections(list.as_ref().map(|list| list.iter()
-                .map(|(key, title, kind)| (*key, title.clone(), kind.wire().into())).collect())),
+                .map(|(key, title, kind, _)| (*key, title.clone(), kind.wire().into())).collect())),
             SrcWhat::Counts(counts) => What::Counts(counts.clone()),
+        },
+        assorted: match &landing.what {
+            SrcWhat::Sections(Some(list)) => list.iter()
+                .filter(|(_, _, _, assorted)| *assorted).map(|(key, ..)| *key).collect(),
+            _ => Vec::new(),
         },
     }).expect("discovery wire is serializable")
 }
@@ -74,7 +83,8 @@ pub(crate) fn decode(value: serde_json::Value,
     let what = match wire.what {
         What::Counts(counts) => SrcWhat::Counts(counts),
         What::Sections(list) => SrcWhat::Sections(list.map(|list| list.into_iter().map(|(key, title, kind)| {
-            SecKind::from_wire(&kind).map(|kind| (key, title, kind)).ok_or("invalid discovery section")
+            let assorted = wire.assorted.contains(&key);
+            SecKind::from_wire(&kind).map(|kind| (key, title, kind, assorted)).ok_or("invalid discovery section")
         }).collect::<std::result::Result<Vec<_>, _>>()).transpose()?),
     };
     Ok(Result { epoch: wire.epoch, source: wire.source as usize, instance: wire.client,

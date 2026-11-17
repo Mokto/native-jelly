@@ -266,19 +266,19 @@ fn sort_draft(sorts: &[SortEntry], sort_index: usize, sort_desc: bool) -> MenuDr
     }
 }
 
-/// The kind of the library `listing` lists — the section the directory names at the listing's own
-/// address, so the TYPE menu offers what THAT library can list.
+/// The kind of the library `listing` lists, and whether it is assorted — the section the directory
+/// names at the listing's own address, so the TYPE menu offers (and names) what THAT library lists.
 fn listing_kind(
     listing: crate::stores::browse::ListingView<'_>,
     directory: crate::stores::browse::DirectoryView<'_>,
-) -> SecKind {
+) -> (SecKind, bool) {
     listing.id().and_then(|id| directory.sections().iter()
         .find(|section| section.sid == Some(id.sid) && section.key == id.section))
-        .map_or(SecKind::Movie, |section| section.kind)
+        .map_or((SecKind::Movie, false), |section| (section.kind, section.row.assorted))
 }
 
 /// The TYPE menu: every [`LibraryType`] the section's kind offers, the current one checked.
-fn type_draft(section_kind: SecKind, current: LibraryType) -> MenuDraft {
+fn type_draft((section_kind, assorted): (SecKind, bool), current: LibraryType) -> MenuDraft {
     let mut section = MenuSection::new(nj_platform::i18n::msg::browse_library_filter_by());
     let mut selected = None;
     for &kind in LibraryType::offered(section_kind) {
@@ -288,12 +288,13 @@ fn type_draft(section_kind: SecKind, current: LibraryType) -> MenuDraft {
             section,
             identity,
             Action::Edit(QueryEdit::LibraryType(kind)),
-            Row::new(kind.title(section_kind)).checked(kind == current),
+            Row::new(kind.menu_title(section_kind, assorted)).checked(kind == current),
         );
     }
     let mut stamp = Stamp::default();
     stamp.tag(13);
     stamp.tag(u8::from(section_kind == SecKind::Show));
+    stamp.tag(u8::from(assorted));
     stamp.u32(current.code());
     MenuDraft { stamp: stamp.finish(), form: MenuForm::new().section(section), selected }
 }
@@ -950,7 +951,7 @@ mod tests {
     fn tv_type_menu_checks_and_commits_each_granularity() {
         let types = [LibraryType::Primary, LibraryType::Seasons, LibraryType::Episodes, LibraryType::Collections];
         for (selected, current) in types.into_iter().enumerate() {
-            let draft = lay(type_draft(SecKind::Show, current));
+            let draft = lay(type_draft((SecKind::Show, false), current));
             assert_eq!(draft.selected, selected as i32);
             assert_eq!(draft.sections[0].rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(),
                 ["TV Shows", "Seasons", "Episodes", "Collections"]);
@@ -959,22 +960,32 @@ mod tests {
             }
             assert!(matches!(draft.rows[selected].1, Action::Edit(QueryEdit::LibraryType(kind)) if kind == current));
         }
-        assert_ne!(type_draft(SecKind::Show, LibraryType::Primary).stamp,
-            lay(type_draft(SecKind::Show, LibraryType::Episodes)).stamp);
+        assert_ne!(type_draft((SecKind::Show, false), LibraryType::Primary).stamp,
+            lay(type_draft((SecKind::Show, false), LibraryType::Episodes)).stamp);
     }
 
     #[test]
     fn movie_type_menu_offers_movies_and_collections() {
         for (selected, current) in [LibraryType::Primary, LibraryType::Collections].into_iter().enumerate() {
-            let draft = lay(type_draft(SecKind::Movie, current));
+            let draft = lay(type_draft((SecKind::Movie, false), current));
             assert_eq!(draft.selected, selected as i32);
             assert_eq!(draft.sections[0].rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(),
                 ["Movies", "Collections"]);
             assert!(matches!(draft.rows[selected].1, Action::Edit(QueryEdit::LibraryType(kind)) if kind == current));
         }
         // The same checked row names a different menu in the other kind of library.
-        assert_ne!(type_draft(SecKind::Movie, LibraryType::Collections).stamp,
-            lay(type_draft(SecKind::Show, LibraryType::Collections)).stamp);
+        assert_ne!(type_draft((SecKind::Movie, false), LibraryType::Collections).stamp,
+            lay(type_draft((SecKind::Show, false), LibraryType::Collections)).stamp);
+    }
+
+    #[test]
+    fn an_assorted_library_names_its_own_listing_all() {
+        let draft = lay(type_draft((SecKind::Movie, true), LibraryType::Primary));
+        assert_eq!(draft.sections[0].rows.iter().map(|row| row.label.as_str()).collect::<Vec<_>>(),
+            ["All", "Collections"]);
+        assert_eq!(draft.selected, 0);
+        assert_ne!(type_draft((SecKind::Movie, true), LibraryType::Primary).stamp,
+            lay(type_draft((SecKind::Movie, false), LibraryType::Primary)).stamp);
     }
 
     #[test]
@@ -1020,7 +1031,7 @@ mod tests {
                 sid: Some(ServerId::from_raw(1)),
                 key: 7,
                 kind: SecKind::Movie,
-                row: SrcRow {
+                row: SrcRow { assorted: false,
                     src: 0,
                     section: 0,
                     title: "Movies".into(),
@@ -1034,7 +1045,7 @@ mod tests {
                 sid: Some(ServerId::from_raw(2)),
                 key: 7,
                 kind: SecKind::Movie,
-                row: SrcRow {
+                row: SrcRow { assorted: false,
                     src: 1,
                     section: 1,
                     title: "Shared Movies".into(),
@@ -1181,7 +1192,7 @@ mod tests {
                 sid: Some(ServerId::from_raw(1)),
                 key: 8,
                 kind: SecKind::Movie,
-                row: SrcRow {
+                row: SrcRow { assorted: false,
                     src: 0,
                     section: 1,
                     title: "More Movies".into(),
@@ -1218,7 +1229,7 @@ mod tests {
         for language in SHIPPED {
             let _guard = language_on_this_thread_for_test(language);
             for kind in [SecKind::Movie, SecKind::Show] {
-                let draft = lay(type_draft(kind, LibraryType::Collections));
+                let draft = lay(type_draft((kind, false), LibraryType::Collections));
                 let mut table = TableView::new();
                 table.set_sections(draft.sections, draft.selected, false);
                 out.extend(table.menu_cap_failure(&measure, &format!("{} {kind:?}", language.tag())));

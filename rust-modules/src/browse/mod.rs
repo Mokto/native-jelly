@@ -280,6 +280,9 @@ pub(crate) struct BrowseSection {
     /// question cannot tell Music from Movies, so a friend's music library would fold onto your
     /// *Movies* pill, which is the one case the projection exists to get right.
     pub(crate) kind: SecKind,
+    /// Its items are not all films ([`crate::catalog::LibrarySection::assorted`]): the TYPE menu
+    /// names its listing "All" and the Sources row counts items.
+    pub(crate) assorted: bool,
     /// The library's own item count, unfiltered — the Sources row's "185 films". `-1` until the
     /// count probe lands. Deliberately NOT [`SecState::total`], which is the count of the CURRENT
     /// QUERY: with an unwatched filter on, that number describes what you are looking at and would
@@ -336,6 +339,16 @@ impl LibraryType {
 
     pub(crate) fn title(self, kind: SecKind) -> &'static str {
         self.title_in(kind, nj_platform::i18n::current())
+    }
+
+    /// The TYPE menu's name for this type in one library: [`Self::title`], except that an
+    /// assorted library's own listing ([`BrowseSection::assorted`]) holds more than films, so it
+    /// reads "All" rather than "Movies".
+    pub(crate) fn menu_title(self, kind: SecKind, assorted: bool) -> &'static str {
+        match (self, kind) {
+            (Self::Primary, SecKind::Movie) if assorted => nj_platform::i18n::msg::browse_library_all(),
+            _ => self.title(kind),
+        }
     }
 
     fn title_in(self, kind: SecKind, locale: &nj_platform::i18n::LocaleContext) -> &'static str {
@@ -1582,7 +1595,8 @@ impl BrowseState {
         self.sections.iter().enumerate().filter(|(_, section)| keep(section))
             .map(|(index, section)| SrcRow {
                 src: section.src, section: index, title: section.title.clone(),
-                count_line: count_line(section.count, section.kind), pinned: section.pinned,
+                count_line: count_line(section.count, section.kind, section.assorted),
+                assorted: section.assorted, pinned: section.pinned,
                 last_pinned: last && section.pinned, current: index == current,
             }).collect()
     }
@@ -1744,17 +1758,17 @@ impl BrowseState {
         let user = crate::catalog::session::current_profile_key();
         self.resolve_pins_from(&session, &user);
     }
-    fn append_sections_with(&mut self, source: usize, list: Vec<(i64, String, SecKind)>,
+    fn append_sections_with(&mut self, source: usize, list: Vec<Discovered>,
         preferences: Option<&crate::catalog::session::Session>) {
-        let fresh: Vec<_> = list.into_iter().filter(|(key, _, _)| {
+        let fresh: Vec<_> = list.into_iter().filter(|(key, _, _, _)| {
             !self.sections.iter().any(|section| section.src == source && section.key == *key)
         }).collect();
         if fresh.is_empty() {
             return;
         }
-        for (key, title, kind) in fresh {
+        for (key, title, kind, assorted) in fresh {
             self.sections.push(BrowseSection {
-                src: source, key, title, kind, count: -1, pinned: false,
+                src: source, key, title, kind, assorted, count: -1, pinned: false,
             });
             self.states.push(SecState::default());
         }
@@ -2663,7 +2677,7 @@ struct SrcLanding {
 enum SrcWhat {
     /// `GET /library/sections`. `None` is the FAILURE sentinel — the source is marked unreachable
     /// and whatever sections it had already contributed are left exactly where they are.
-    Sections(Option<Vec<(i64, String, SecKind)>>),
+    Sections(Option<Vec<Discovered>>),
     /// The unfiltered item count per library, **by section KEY** rather than by index: the table
     /// may have grown between the spawn and the landing, and a key is stable inside one source.
     Counts(Vec<(i64, i64)>),
@@ -2674,7 +2688,7 @@ enum SrcWhat {
 #[cfg(test)]
 fn ensure_sections_with(
     state: &mut BrowseState,
-    fetch: impl FnOnce(&crate::catalog::Client) -> Option<Vec<(i64, String, SecKind)>>,
+    fetch: impl FnOnce(&crate::catalog::Client) -> Option<Vec<Discovered>>,
 ) -> usize {
     state.sync_roster_owned();
     let cur_sid = crate::catalog::current_server();
@@ -2727,7 +2741,7 @@ fn ensure_sections_with(
 /// the top level before it had a tab. What is still missing is the level BELOW the grid — an artist
 /// opens the movie detail page, which has nothing to play — and that belongs to whoever builds the
 /// music level, not to the strip.
-fn project_sections(mc: &crate::catalog::MediaContainer) -> Vec<(i64, String, SecKind)> {
+fn project_sections(mc: &crate::catalog::MediaContainer) -> Vec<Discovered> {
     mc.directory
         .iter()
         .filter_map(|d| {
@@ -2735,10 +2749,14 @@ fn project_sections(mc: &crate::catalog::MediaContainer) -> Vec<(i64, String, Se
             d.key
                 .parse::<i64>()
                 .ok()
-                .map(|k| (k, d.title.clone(), kind))
+                .map(|k| (k, d.title.clone(), kind, d.assorted))
         })
         .collect()
 }
+
+/// One discovered library: its key, title, kind and whether it is assorted
+/// ([`crate::catalog::LibrarySection::assorted`]).
+pub(crate) type Discovered = (i64, String, SecKind, bool);
 
 /// A library section's TYPE — the product's closed type list, and the unit the tab projection
 /// ([`tabs`]) compares by.
@@ -2980,6 +2998,8 @@ pub(crate) struct SrcRow {
     pub(crate) title: String,
     /// "185 films" once the count has landed, else the library's type word
     pub(crate) count_line: String,
+    /// [`BrowseSection::assorted`]: the TYPE menu's first row reads "All".
+    pub(crate) assorted: bool,
     pub(crate) pinned: bool,
     /// the only pinned library left — its value dims and its sub-line states the rule
     pub(crate) last_pinned: bool,
@@ -2987,8 +3007,10 @@ pub(crate) struct SrcRow {
     pub(crate) current: bool,
 }
 
-fn count_line(count: i64, kind: SecKind) -> String {
-    if count >= 0 {
+fn count_line(count: i64, kind: SecKind, assorted: bool) -> String {
+    if count >= 0 && assorted {
+        nj_platform::i18n::msg::browse_search_items(count)
+    } else if count >= 0 {
         match kind {
             SecKind::Movie => nj_platform::i18n::msg::browse_person_films(count),
             SecKind::Show => nj_platform::i18n::msg::browse_person_shows(count),
@@ -3260,7 +3282,7 @@ pub(crate) fn seed_pins_for_owner_test(state: &mut BrowseState, pinned: &[bool])
     state.sections = pinned
         .iter()
         .enumerate()
-        .map(|(index, &on)| BrowseSection {
+        .map(|(index, &on)| BrowseSection { assorted: false,
             src: 0,
             key: index as i64 + 1,
             title: format!("Library {index}"),
@@ -3285,7 +3307,7 @@ pub(crate) fn set_pinned_for_owner_test(state: &mut BrowseState, index: usize, o
 pub(crate) fn land_pin_for_owner_test(state: &mut BrowseState, pinned: bool) {
     nj_base::testlock::assert_held("an owned browse section table (land_pin_for_test)");
     let key = state.sections.len() as i64 + 1;
-    state.sections.push(BrowseSection {
+    state.sections.push(BrowseSection { assorted: false,
         src: 0,
         key,
         title: format!("Library {}", state.sections.len()),
@@ -3309,16 +3331,16 @@ pub(crate) fn seed_two_source_table_for_owner_test(state: &mut BrowseState) {
     state.append_sections_with(
         0,
         vec![
-            (1, "Movies".into(), SecKind::Movie),
-            (2, "TV Shows".into(), SecKind::Show),
+            (1, "Movies".into(), SecKind::Movie, false),
+            (2, "TV Shows".into(), SecKind::Show, false),
         ],
         None,
     );
     state.append_sections_with(
         1,
         vec![
-            (1, "Film Club".into(), SecKind::Movie),
-            (2, "Film Club".into(), SecKind::Show),
+            (1, "Film Club".into(), SecKind::Movie, false),
+            (2, "Film Club".into(), SecKind::Show, false),
         ],
         None,
     );
@@ -3357,7 +3379,7 @@ pub(crate) fn append_section_for_owner_test(
     kind: SecKind,
 ) {
     nj_base::testlock::assert_held("an owned browse section table (append_section_for_test)");
-    state.append_sections_with(source, vec![(key, title.into(), kind)], None);
+    state.append_sections_with(source, vec![(key, title.into(), kind, false)], None);
 }
 
 #[cfg(test)]

@@ -881,7 +881,7 @@ mod tests {
             .sources
             .push(super::super::test_support::a_source("machine-a", "", true));
         for (key, title) in [(7, "Films A"), (8, "Films B")] {
-            first.sections.push(super::super::BrowseSection {
+            first.sections.push(super::super::BrowseSection { assorted: false,
                 src: 0,
                 key,
                 title: title.into(),
@@ -919,7 +919,7 @@ mod tests {
         second
             .sources
             .push(super::super::test_support::a_source("machine-b", "", false));
-        second.sections.push(super::super::BrowseSection {
+        second.sections.push(super::super::BrowseSection { assorted: false,
             src: 0,
             key: 70,
             title: "Other Films".into(),

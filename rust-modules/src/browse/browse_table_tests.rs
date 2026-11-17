@@ -13,7 +13,7 @@ fn addressed_instance_commit_validates_identity_and_selects_before_query() {
     let mut state = super::BrowseState::default();
     state.sources.push(a_source("machine-a", "", true));
     state.sections = vec![
-        super::BrowseSection {
+        super::BrowseSection { assorted: false,
             src: 0,
             key: 7,
             title: "Films A".into(),
@@ -21,7 +21,7 @@ fn addressed_instance_commit_validates_identity_and_selects_before_query() {
             count: 0,
             pinned: true,
         },
-        super::BrowseSection {
+        super::BrowseSection { assorted: false,
             src: 0,
             key: 8,
             title: "Films B".into(),

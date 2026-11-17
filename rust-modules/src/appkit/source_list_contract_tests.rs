@@ -18,7 +18,7 @@ fn two_sources() -> (Vec<SrcGroup>, Vec<crate::stores::browse::SrcRow>) {
 }
 
 fn lib(src: usize, section: usize, title: &str, pinned: bool, last: bool, current: bool) -> crate::stores::browse::SrcRow {
-    crate::stores::browse::SrcRow {
+    crate::stores::browse::SrcRow { assorted: false,
         src,
         section,
         title: title.into(),

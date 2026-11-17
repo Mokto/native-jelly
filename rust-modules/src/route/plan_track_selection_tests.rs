@@ -298,3 +298,13 @@ fn a_dca_track_follows_the_dts_row_in_both_modes() {
     assert!(!audio_direct_plays_with(&with_row, DirectPlayMode::Auto, "dca", 8), "Auto keeps the ceiling");
     assert!(audio_direct_plays_with(&with_row, DirectPlayMode::Forced, "dca", 8), "Forced skips it");
 }
+
+#[test]
+fn only_an_eac3_atmos_track_is_logged_as_declared_immersive() {
+    assert_eq!(atmos_plan_line("eac3"), "audio: dolby atmos — declaring contents.immersive=ATMOS");
+    for codec in ["truehd", "aac"] {
+        let line = atmos_plan_line(codec);
+        assert!(!line.contains("declaring"), "{codec}: {line}");
+        assert!(line.contains(codec) && line.contains("not declared"), "{codec}: {line}");
+    }
+}

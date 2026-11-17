@@ -449,6 +449,7 @@ impl<'a> Jf<'a> {
                     kind: "genre".into(),
                     title: g.name.clone(),
                     size: 0,
+                    ..Default::default()
                 }).collect()
             }
             "firstCharacter" => {
@@ -470,7 +471,9 @@ impl<'a> Jf<'a> {
                     let key = if c.is_ascii_alphabetic() { c.to_string() } else { "#".to_string() };
                     match out.last_mut() {
                         Some(last) if last.key == key => last.size += 1,
-                        _ => out.push(LibrarySection { key: key.clone(), kind: String::new(), title: key, size: 1 }),
+                        _ => out.push(LibrarySection {
+                            key: key.clone(), kind: String::new(), title: key, size: 1, ..Default::default()
+                        }),
                     }
                 }
                 out

@@ -123,6 +123,12 @@ pub struct LibrarySection {
     /// firstCharacter rows: the letter's item count (PMS string-encodes it).
     #[serde(default, deserialize_with = "de_i64")]
     pub size: i64,
+    /// A library whose items are not all one kind — Jellyfin's mixed, Home Videos and Music Videos
+    /// libraries, which this facade lists under the movie kind (`jf::convert::section`). Its TYPE
+    /// menu's first row reads "All" rather than "Movies", and its count reads in items, not films.
+    /// Never on the wire; set by the Jellyfin converter only.
+    #[serde(skip)]
+    pub assorted: bool,
 }
 
 /// `MediaContainer.Meta` — present with `includeMeta=1` on `/library/sections/{k}/all`.

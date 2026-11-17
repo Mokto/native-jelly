@@ -58,7 +58,10 @@ impl LibraryScreen {
                 Some(GridAction::LibraryType(kind)) => *kind,
                 _ => listing.library_type(),
             };
-            (nj_platform::i18n::msg::browse_library_type_c(), kind.title(self.kind).to_owned())
+            let assorted = listing.id().and_then(|id| H::directory(cx).sections().iter()
+                .find(|section| section.sid == Some(id.sid) && section.key == id.section))
+                .is_some_and(|section| section.row.assorted);
+            (nj_platform::i18n::msg::browse_library_type_c(), kind.menu_title(self.kind, assorted).to_owned())
         } else if elem == SORT {
             let sort = match queued {
                 Some(GridAction::Sort { key, .. }) => listing.sorts().iter().find(|sort| &sort.key == key),

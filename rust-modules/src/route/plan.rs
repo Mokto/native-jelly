@@ -1451,6 +1451,17 @@ fn encoder_start_secs(env: &ResolveEnv) -> i64 {
     if env.preview { 0 } else { env.start_ns.max(0) / 1_000_000_000 }
 }
 
+/// The planner's Atmos log line for the picked track. Only E-AC-3 JOC is ever declared as
+/// `contents.immersive` ([`crate::route::stream_immersive`]); a TrueHD Atmos track reaches the
+/// pipeline as the AC-3 the television converts it to, so its line must not claim a declaration
+/// the Load payload never makes.
+fn atmos_plan_line(codec: &str) -> String {
+    if codec == "eac3" {
+        "audio: dolby atmos — declaring contents.immersive=ATMOS".to_owned()
+    } else {
+        format!("audio: dolby atmos in {codec} — not declared (only E-AC-3 carries immersive)")
+    }
+}
 
 /// The direct-play plan: the pipeline decodes the SOURCE codecs natively, so the Load payload uses
 /// them (h264/hevc + the chosen audio track's codec). If a specific track was picked (aidx >= 0),
@@ -1482,7 +1493,7 @@ fn fill_direct_plan(
     // ships an Atmos 7.1 beside a plain 5.1, and declaring one while feeding the other is a lie the
     // pipeline cannot detect. Set on this branch only: a conversion's payload describes the
     // server's output, not this track.
-    plan.immersive = plan
+    let picked_atmos_codec = plan
         .playing
         .as_ref()
         .and_then(|p| {
@@ -1492,9 +1503,11 @@ fn fill_direct_plan(
                 p.audio.iter().find(|a| a.default)
             }
         })
-        .is_some_and(|a| a.has_atmos());
-    if plan.immersive {
-        crate::player::log("audio: dolby atmos — declaring contents.immersive=ATMOS");
+        .filter(|a| a.has_atmos())
+        .map(|a| a.codec.to_ascii_lowercase());
+    plan.immersive = picked_atmos_codec.is_some();
+    if let Some(codec) = &picked_atmos_codec {
+        crate::player::log(&atmos_plan_line(codec));
     }
     if aidx >= 0 {
         // apply_plan stores this on the main thread — the demux thread reads it on every reopen.

@@ -484,7 +484,7 @@ fn blocking_section_discovery_discards_a_same_slot_repoint_during_the_request() 
             crate::catalog::register_for_test("browse-life", "10.0.0.2", 32400, "new", "cid"),
             sid
         );
-        Some(vec![(1, "Stale Movies".into(), SecKind::Movie)])
+        Some(vec![(1, "Stale Movies".into(), SecKind::Movie, false)])
     });
 
     assert_eq!(count, 0);
@@ -510,7 +510,7 @@ fn blocking_section_discovery_discards_an_in_place_retoken_during_the_request() 
             crate::catalog::register_for_test("browse-life", "10.0.0.1", 32400, "new", "cid"),
             sid
         );
-        Some(vec![(1, "Stale Movies".into(), SecKind::Movie)])
+        Some(vec![(1, "Stale Movies".into(), SecKind::Movie, false)])
     });
 
     assert_ne!(old.token_gen(), old_gen);
@@ -637,4 +637,35 @@ fn the_source_table_tells_a_household_server_from_a_share_though_both_read_unown
         [(false, true), (false, false)],
         "plex.tv owns neither; only one of them is this house's",
     );
+}
+
+/// A Jellyfin mixed / Home Videos / Music Videos library survives the discovery record's
+/// round trip as assorted, and a result recorded before the flag existed decodes as plain.
+#[test]
+fn discovery_records_carry_which_libraries_are_assorted() {
+    let _g = nj_base::testlock::serial();
+    let (_cleanup, _browse, _sid, client) = registered_source();
+    let result = record::Result {
+        epoch: 1, source: 0, instance: client.instance_gen(), adapter: None,
+        landing: SrcLanding { client, token_gen: client.token_gen(), name: "s".into(),
+            what: SrcWhat::Sections(Some(vec![
+                (1, "Films".into(), SecKind::Movie, false),
+                (2, "Home Videos".into(), SecKind::Movie, true),
+            ])) },
+    };
+    let bind = |id| (id == client.instance_gen()).then_some(client);
+    let sections = |r: record::Result| match r.landing.what {
+        SrcWhat::Sections(Some(list)) => list.into_iter().map(|(k, _, _, a)| (k, a)).collect::<Vec<_>>(),
+        _ => panic!("sections expected"),
+    };
+    let mut wire = record::encode(&result);
+    assert_eq!(sections(record::decode(wire.clone(), bind).unwrap()), [(1, false), (2, true)]);
+    wire.as_object_mut().unwrap().remove("assorted");
+    assert_eq!(sections(record::decode(wire, bind).unwrap()), [(1, false), (2, false)]);
+}
+
+#[test]
+fn an_assorted_library_counts_items_not_films() {
+    assert_eq!(count_line(12, SecKind::Movie, true), "12 items");
+    assert_eq!(count_line(12, SecKind::Movie, false), "12 films");
 }

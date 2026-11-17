@@ -536,7 +536,8 @@ pub fn markers(segs: &[MediaSegmentDto], duration_ms: i64) -> Vec<Marker> {
 
 /// A user view → `LibrarySection`, or `None` for a view this client does not browse.
 pub fn section(view: &BaseItemDto) -> Option<LibrarySection> {
-    let kind = match view_item_types(view)? {
+    let types = view_item_types(view)?;
+    let kind = match types {
         "Series" => "show",
         _ => "movie",
     };
@@ -545,6 +546,7 @@ pub fn section(view: &BaseItemDto) -> Option<LibrarySection> {
         kind: kind.into(),
         title: view.name.clone(),
         size: view.child_count.or(view.recursive_item_count).unwrap_or(0),
+        assorted: !matches!(types, "Movie" | "Series"),
     })
 }
 
@@ -750,6 +752,18 @@ mod tests {
         assert_eq!(mixed.kind, "movie");
         assert_eq!(mixed.title, "Mixed");
         assert!(section(&view("UserView")).is_none(), "an untyped view that is not a library stays out");
+    }
+
+    /// Mixed, Home Videos and Music Videos libraries list under the movie kind but hold more than
+    /// films, so they are marked assorted (their TYPE menu reads "All").
+    #[test]
+    fn libraries_that_are_not_only_films_or_shows_are_assorted() {
+        let typed = |t: Option<&str>| BaseItemDto { id: "eeeeeeeeeeeee000000000000000000f".into(),
+            kind: "CollectionFolder".into(), collection_type: t.map(Into::into), ..Default::default() };
+        for (t, assorted) in [(Some("movies"), false), (Some("tvshows"), false), (Some("homevideos"), true),
+            (Some("musicvideos"), true), (None, true)] {
+            assert_eq!(section(&typed(t)).unwrap().assorted, assorted, "{t:?}");
+        }
     }
 
     #[test]

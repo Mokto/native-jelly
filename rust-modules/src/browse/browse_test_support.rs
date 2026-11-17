@@ -45,6 +45,7 @@ impl TestBrowse {
     }
 
     pub(super) fn append_sections(&mut self, source: usize, sections: Vec<(i64, String, SecKind)>) {
+        let sections = sections.into_iter().map(|(key, title, kind)| (key, title, kind, false)).collect();
         self.state.append_sections_with(source, sections, None);
     }
 
@@ -195,7 +196,7 @@ pub(super) fn queue_success_from(
         client,
         token_gen,
         name: "stale-name".into(),
-        what: SrcWhat::Sections(Some(vec![(99, "Stale Library".into(), SecKind::Movie)])),
+        what: SrcWhat::Sections(Some(vec![(99, "Stale Library".into(), SecKind::Movie, false)])),
     };
     *browse.adapter.src_result.lock().unwrap_or_else(|e| e.into_inner()) =
         Some((browse.state.table_epoch(), 0, landing));

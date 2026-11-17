@@ -454,11 +454,11 @@ mod tests {
             SrcGroup { name: "friends-server".into(), handle: "friend".into(), state: SourceState::Reachable, tier: Some(Location::Relay) },
         ];
         let rows = vec![
-            crate::browse::SrcRow { src: 0, section: 0, title: "Movies".into(), count_line: "185 films".into(),
+            crate::browse::SrcRow { assorted: false, src: 0, section: 0, title: "Movies".into(), count_line: "185 films".into(),
                 pinned: false, last_pinned: false, current: false },
-            crate::browse::SrcRow { src: 1, section: 1, title: "TV Shows".into(), count_line: "40 shows".into(),
+            crate::browse::SrcRow { assorted: false, src: 1, section: 1, title: "TV Shows".into(), count_line: "40 shows".into(),
                 pinned: true, last_pinned: true, current: false },
-            crate::browse::SrcRow { src: 2, section: 2, title: "Home Videos".into(), count_line: "12 films".into(),
+            crate::browse::SrcRow { assorted: false, src: 2, section: 2, title: "Home Videos".into(), count_line: "12 films".into(),
                 pinned: true, last_pinned: false, current: true },
         ];
         let mut out = Vec::new();
@@ -479,7 +479,7 @@ mod tests {
     }
 
     fn one_group_sections(g: SrcGroup) -> Vec<Section> {
-        let rows = vec![crate::browse::SrcRow { src: 0, section: 0, title: "Movies".into(), count_line: "1 film".into(),
+        let rows = vec![crate::browse::SrcRow { assorted: false, src: 0, section: 0, title: "Movies".into(), count_line: "1 film".into(),
             pinned: true, last_pinned: false, current: false }];
         sections(Level::Browse, &[g], &rows, Tail::None).0
     }
