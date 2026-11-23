@@ -27,6 +27,7 @@ FILE *elogf = NULL;   /* shared event/diagnostic log (extern in app.h); used by 
 
 extern int nj_run(const char *pms_host, int pms_port);  /* Rust app core (no creds — session or /tmp/nativejelly-token) */
 extern int nj_sentry_spool_external(const char *path); /* Sentry daemon's spool-only re-entry */
+extern void nj_launch_params(const char *params);      /* webOS launch params (argv[1]) -> deep link */
 extern void nj_crash_write_image_marker(int fd); /* identify this binary in the append-only log */
 
 /* Where this INSTALL's runtime files live — `/tmp/nativejelly-events.log` for the app users get,
@@ -111,6 +112,7 @@ int main(int argc, char **argv) {
      * ordinary app log, starting SDL, or arming another handler. A lookalike argument returns 0 and
      * proceeds as a normal launch; Rust validates the exact SDK directory, UUID and file type. */
     if (argc == 2 && nj_sentry_spool_external(argv[1])) return 0;
+    if (argc == 2) nj_launch_params(argv[1]); /* ignores anything that is not a deep link */
     elogf = open_event_log();
     /* The crash handler's own descriptors, both opened BEFORE `install_crash_tracer` arms the
      * handler — so a signal can never reach code that has to open something first, which is the

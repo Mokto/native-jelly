@@ -2308,6 +2308,9 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
             menu_play_tick(&mut app.player.session, &mut app.adapters.player,
                 &mut app.pages, &mut app.bridge, &mut app.menu_play_await, fr.now);
         }
+        if app.deep_link.is_some() {
+            super::deep_link::tick(&mut app.deep_link, &mut app.pages, &mut app.bridge, fr.now);
+        }
         // Server-side view-state WRITES (Mark as Watched / Unwatched, Remove from Deck): send
         // the next queued one, land the last one's answer and kick the refresh it owes. Route-
         // unconditional for the same reason as the two pumps around it — the user can walk off

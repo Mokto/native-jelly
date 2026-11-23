@@ -126,6 +126,7 @@ pub(crate) mod input;
 pub(crate) mod bridge;
 pub(crate) mod chrome;
 pub(crate) mod content;
+pub(crate) mod deep_link;
 pub(crate) mod run;
 use self::boot::*;
 use self::events::*;
@@ -287,6 +288,8 @@ pub(crate) struct App {
     /// already finished by then). See `input::menu_play_tick`, driven every frame beside
     /// `pump_detail()` (`app/run.rs`).
     pub(crate) menu_play_await: Option<MenuPlayAwait>,
+    /// The item a launcher asked to open (`deep_link`), until Home is up to open it.
+    pub(crate) deep_link: Option<deep_link::Pending>,
     pub(crate) prev: u32,
     pub(crate) refresh_hubs_at: u32,
     /// Noticing a library change on the server (`stores::library_poll`), stepped every frame.
