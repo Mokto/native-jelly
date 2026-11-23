@@ -3306,6 +3306,7 @@ mod lifecycle_regression_tests {
             last_route_reported: Default::default(),
             ptr: Pointer::IDLE,
             menu_play_await: Default::default(),
+            deep_link: None,
             prev: Default::default(),
             refresh_hubs_at: Default::default(),
             library_poll: Default::default(),
