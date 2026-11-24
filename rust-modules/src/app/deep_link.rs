@@ -1,7 +1,8 @@
 //! **Launch-parameter deep link: a launcher that opens Native Jelly on one item, as one user.**
 //!
 //! webOS hands a native app the `params` of a `luna://com.webos.applicationManager/launch` call as
-//! one JSON string in `argv[1]` (`src/main.c` passes it to [`nj_launch_params`]). A launcher shelf
+//! one JSON string in `argv[1]` (`src/main.c` passes it to [`nj_launch_params`]); on webOS 6 and
+//! later that string is SAM's lifecycle message, with the params under `parameters`. A launcher shelf
 //! such as CleanYourTV's *Jellyfin continue watching* card sends `{"itemId": "<GUID>", "serverId":
 //! "<GUID>"}` plus keys this app does not read (`tmdbId`, `mediaType`, `title`). A program that
 //! wants a person's own library adds `"userId": "<GUID>"`.
@@ -77,9 +78,15 @@ pub(crate) fn parse(params: &str) -> Option<DeepLink> {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(params).ok()?;
-    let item = opt_guid(&v, "itemId").ok()?;
-    let user = opt_guid(&v, "userId").ok()?;
-    let server = opt_guid(&v, "serverId").ok()?;
+    // A native app on interface version 2 (webOS 6 and later) gets SAM's lifecycle message in
+    // argv[1], with the launch params under `parameters` (measured on a C1, webOS 6.5).
+    let v = match v.get("parameters") {
+        Some(p) if p.is_object() => p,
+        _ => &v,
+    };
+    let item = opt_guid(v, "itemId").ok()?;
+    let user = opt_guid(v, "userId").ok()?;
+    let server = opt_guid(v, "serverId").ok()?;
     (item.is_some() || user.is_some()).then_some(DeepLink { item, user, server })
 }
 
@@ -250,6 +257,16 @@ mod tests {
             Some(DeepLink { item: None, user: Some(U1.into()), server: None }),
             "a user alone is a link"
         );
+    }
+
+    #[test]
+    fn reads_the_params_inside_sams_lifecycle_message() {
+        // argv[1] of a launch on a webOS 6.5 C1 (nativeLifeCycleInterfaceVersion 2).
+        let argv = format!(
+            r#"{{"event":"launch","reason":"undefined","appId":"com.sostk.nativejelly","interfaceVersion":2,"parameters":{{"itemId":"{A}","userId":"{U1}"}},"interfaceMethod":"registerApp","@system_native_app":true}}"#
+        );
+        assert_eq!(parse(&argv), Some(DeepLink { item: Some(A.into()), user: Some(U1.into()), server: None }));
+        assert_eq!(parse(r#"{"event":"launch","parameters":{}}"#), None, "a plain launch is no link");
     }
 
     #[test]
