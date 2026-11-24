@@ -1,19 +1,31 @@
-# Opening an item from a launcher (deep link)
+# Opening an item or a user from a launcher (deep link)
 
-A launcher can open Native Jelly on one item's detail page by passing launch parameters:
+A launcher can open Native Jelly on one item's detail page, as one of the users already kept on
+the television, by passing launch parameters:
 
 ```sh
 luna-send -n 1 luna://com.webos.applicationManager/launch \
-  '{"id":"com.sostk.nativejelly","params":{"itemId":"<Jellyfin item id>","serverId":"<Jellyfin server id>"}}'
+  '{"id":"com.sostk.nativejelly","params":{"userId":"<user id>","itemId":"<item id>","serverId":"<server id>"}}'
 ```
 
-- `itemId` is the item's Jellyfin id, dashed or not. `serverId` is optional; when it is given and
-  names another server than the one signed in, the link is dropped.
+| key | meaning |
+| --- | --- |
+| `itemId` | Open this item's detail page (never playback). |
+| `userId` | Be this user. Picked from the users already signed in on this television, like a tile on the who's-watching screen; the screen is skipped. |
+| `serverId` | Optional. Dropped when it names another server than the user's (or the signed-in one). |
+
+All ids are Jellyfin GUIDs, dashed or not. At least one of `itemId` and `userId` is needed; other
+keys (`tmdbId`, `mediaType`, `title`) are ignored.
+
 - webOS passes `params` to a native app as one JSON string in `argv[1]`; `src/main.c` hands it to
-  `app::deep_link`. Other keys (`tmdbId`, `mediaType`, `title`) are ignored.
-- The link opens the **detail page**, never playback. It waits for Home (behind sign-in, the
-  who's-watching picker or a first-run question) and is dropped after 45 seconds.
+  `app::deep_link`.
+- `userId` only chooses among kept users. It never signs anyone in, takes no password or token,
+  and a user who is not kept is dropped, not guessed. Jellyfin users have no PIN here, so this
+  is what the remote could do. A kept user whose sign-in the server has since revoked lands on
+  the same error a pick from the who's-watching screen would.
+- The link waits for Home (behind sign-in, the who's-watching screen or a first-run question)
+  and is dropped after 45 seconds.
 - Anything that is not a GUID is refused before it reaches the catalog or the log.
 - The app declares `handlesRelaunch: false`, so a launch while it is running restarts it.
 
-CleanYourTV's *Jellyfin continue watching* add-on sends exactly these parameters.
+CleanYourTV's *Jellyfin continue watching* add-on sends `itemId` and `serverId`.
