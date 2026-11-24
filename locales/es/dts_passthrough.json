@@ -1,4 +1,8 @@
 {
-  "settings.playback.dts_passthrough": "Paso directo de DTS",
-  "settings.playback.dts_passthrough.copy": "Envía las pistas DTS sin cambios a un receptor AV o barra de sonido conectados por HDMI ARC/eARC u óptico, que las decodifica. DTS-HD MA y DTS:X se reproducen con su núcleo DTS 5.1. Solo se usa mientras el sonido del televisor sale por esa conexión; ajusta la Salida de sonido digital en Paso directo."
+  "settings.playback.dts_passthrough": "Audio sin pérdidas al receptor",
+  "settings.playback.dts_passthrough.copy": "Envía las pistas DTS y Dolby TrueHD sin cambios a un receptor AV o barra de sonido, que las decodifica. Por HDMI ARC/eARC, DTS-HD MA viaja dentro del paso directo Dolby Digital Plus del televisor; TrueHD, DTS:X y DTS-HD MA de alta tasa necesitan además el ajuste Atmos, TrueHD y DTS:X de abajo. Si no, y por óptico, DTS se reproduce con su núcleo 5.1 y TrueHD como Dolby Digital. Solo se usa mientras el sonido del televisor sale por esa conexión; ajusta la Salida de sonido digital en Paso directo.",
+  "settings.playback.hbr_support": "Atmos, TrueHD y DTS:X (root)",
+  "settings.playback.hbr_support.copy": "En un televisor con root y Homebrew Channel: instala un módulo del kernel que permite enviar audio de alta tasa de 8 canales por HDMI eARC, para Dolby TrueHD y Atmos, DTS:X y DTS-HD MA completo. Se vuelve a cargar en cada arranque. Probado en un LG C1 (webOS 6); otros televisores lo rechazan de forma segura.",
+  "settings.playback.hbr_support.installed": "Instalado",
+  "settings.playback.hbr_support.removed": "No instalado"
 }

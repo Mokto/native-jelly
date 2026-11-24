@@ -9355,7 +9355,13 @@ pub(crate) fn demux(
                 // refused before anything is fed, through the door a refused Opus header uses, so
                 // the open recovery converts it on the server instead.
                 let mut converter: Option<audio_convert::Converter> = None;
-                if ai >= 0 && FEED_AUDIO.load(Ordering::Relaxed) && audio_convert::wants_conversion(&acodec) {
+                // Lossless audio: TrueHD on the HBR carrier is packed as MAT, never converted.
+                let thd_carrier = ai >= 0 && crate::player::es_carrier::truehd_on();
+                let mut mat = crate::player::es_carrier::Mat::default();
+                if thd_carrier {
+                    crate::player::log("ff: TrueHD as MAT bursts on the HBR carrier");
+                }
+                if ai >= 0 && FEED_AUDIO.load(Ordering::Relaxed) && audio_convert::wants_conversion(&acodec) && !thd_carrier {
                     match audio_convert::Converter::open(stream_codecpar(*streams.add(ai as usize))) {
                         Ok(c) => {
                             crate::player::log(&format!("ff: audio convert on: {}", c.desc));
@@ -9390,6 +9396,13 @@ pub(crate) fn demux(
                     (*stream_codecpar(*streams.add(ai as usize))).codec_id
                 )).to_bytes() == b"dts";
                 let dts_iec = dts_audio && dts_iec;
+                // Lossless audio: the engine declared AC3 PLUS; feed silent E-AC-3 and queue the
+                // DTS-HD frames for player::es_carrier's ES-renderer swap.
+                let es_carrier = dts_iec && crate::player::es_carrier::on();
+                let mut carrier = crate::player::es_carrier::Packer::default();
+                if es_carrier {
+                    crate::player::log("ff: DTS-HD frames as IEC 61937 type IV bursts, 3 per silent E-AC-3 carrier frame");
+                }
                 if dts_audio {
                     crate::player::log("ff: DTS core extraction on (DTS-HD extensions discarded)");
                 }
@@ -9683,6 +9696,9 @@ pub(crate) fn demux(
                         if let Some(conv) = converter.as_mut() {
                             conv.reset();
                         }
+                        carrier.reset();
+                        mat.reset();
+                        crate::player::es_carrier::clear();
                     }
                     let r = av_read_frame(fmt, pkt);
                     if frame_read_failed(&mut state, r) {
@@ -9830,8 +9846,35 @@ pub(crate) fn demux(
                         };
                         // A DTS core: borrowed from the packet, or rebuilt from a byte-swapped or
                         // 14-bit packed one.
+                        let mut carrier_au: Option<(i64, &[u8])> = None;
+                        let mut mat_aus: Vec<(i64, &[u8])> = Vec::new();
+                        if thd_carrier {
+                            match mat.au(raw, pts) {
+                                Ok(ts) => mat_aus = ts.into_iter().map(|t| (t, crate::player::es_carrier::SILENT_EAC3)).collect(),
+                                Err(()) => {
+                                    crate::player::log("ff: TrueHD unit not packable as MAT; refusing audio feed");
+                                    SHARED.demux_failed.store(true, Ordering::Release);
+                                    SHARED.demux_io_failed.store(true, Ordering::Release);
+                                    av_packet_unref(pkt);
+                                    break;
+                                }
+                            }
+                        }
+                        if es_carrier {
+                            let core_len = dts_core_packet(raw).map_or(0, |c| c.len());
+                            match carrier.frame(raw, core_len, pts) {
+                                Ok(first) => carrier_au = first.map(|t| (t, crate::player::es_carrier::SILENT_EAC3)),
+                                Err(()) => {
+                                    crate::player::log("ff: DTS-HD frame fits no type IV burst; refusing audio feed");
+                                    SHARED.demux_failed.store(true, Ordering::Release);
+                                    SHARED.demux_io_failed.store(true, Ordering::Release);
+                                    av_packet_unref(pkt);
+                                    break;
+                                }
+                            }
+                        }
                         let dts_core: Option<std::borrow::Cow<'_, [u8]>> =
-                            if converter.is_none() && framed.is_none() && dts_audio {
+                            if converter.is_none() && framed.is_none() && dts_audio && !es_carrier {
                                 let Some(core) = dts_core_packet(raw) else {
                                     crate::player::log("ff: DTS packet has no complete supported core; refusing audio feed");
                                     SHARED.demux_failed.store(true, Ordering::Release);
@@ -9874,6 +9917,8 @@ pub(crate) fn demux(
                             Some(raw) // AUDIO lane, verbatim
                         };
                         let aus: Vec<(i64, &[u8])> = match single {
+                            _ if es_carrier => carrier_au.into_iter().collect(),
+                            _ if thd_carrier => mat_aus,
                             Some(au) => vec![(pts, au)],
                             None => converted.iter().map(|(t, b)| (*t, b.as_slice())).collect(),
                         };

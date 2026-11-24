@@ -207,12 +207,17 @@ fn every_field_reports_the_page_whose_list_shows_it() {
     let prefs = AudioPreferences::default();
     for kind in [Kind::Playback, Kind::AudioSubtitles] {
         let inputs = FieldListInputs { kind, quality: Quality::Original, direct_play: DirectPlayMode::Auto,
-            prefs: Some(&prefs), busy: false, show_retry: false };
+            prefs: Some(&prefs), busy: false, show_retry: false, lossless: true };
         for &field in fields_of(&inputs) {
             assert_eq!(field.kind(), kind, "{field:?} is listed by {kind:?}");
         }
     }
     let audio = FieldListInputs { kind: Kind::AudioSubtitles, quality: Quality::Original, direct_play: DirectPlayMode::Auto,
-        prefs: Some(&prefs), busy: false, show_retry: false };
+        prefs: Some(&prefs), busy: false, show_retry: false, lossless: true };
     assert_eq!(fields_of(&audio), &[PickerKind::AudioLanguage, PickerKind::SubtitleMode, PickerKind::SubtitleLanguage, PickerKind::DefaultAudioTrack]);
+    // The rooted-TV companion row shows only while lossless audio to a receiver is on.
+    let playback = |lossless| FieldListInputs { kind: Kind::Playback, quality: Quality::Original, direct_play: DirectPlayMode::Auto,
+        prefs: None, busy: false, show_retry: false, lossless };
+    assert!(fields_of(&playback(true)).contains(&PickerKind::HbrSupport));
+    assert!(!fields_of(&playback(false)).contains(&PickerKind::HbrSupport));
 }

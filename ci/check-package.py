@@ -1474,6 +1474,7 @@ NEEDED_LICENCES = {
     "libass-ISC.txt": "the bundled native ASS renderer",
     "FreeType.txt": "FreeType's elected FTL and its contributed modules",
     "HarfBuzz-Old-MIT.txt": "the bundled text shaper",
+    "GPL-2.0.txt": "earc_route, the HBR kernel module shipped beside the app in hbr/",
 }
 for name, why in NEEDED_LICENCES.items():
     p = ROOT / "licenses" / name
@@ -1545,6 +1546,17 @@ if data_blob is not None:
     check(all(_hashlib.sha256(_shipped_subs[f["file"]]).hexdigest() == f["sha256"] for f in _subs_manifest["faces"]
               if f["file"] in _shipped_subs),
           "the ipk's subtitle faces are byte-identical to pkg/fonts/subs (same SHA-256)")
+    # HBR support (vendor/earc_route/README.md): the installer Settings runs, the loader, and the
+    # kernel module, byte-identical to the build recorded beside its source.
+    _hbr = f'usr/palm/applications/{appinfo["id"]}/hbr/'
+    check({_hbr + n for n in ("earc_route-4.4.ko", "earc-route-load.sh", "nativejelly-hbr.sh")} <= paths,
+          "payload carries hbr/ (module, loader, installer)")
+    with tarfile.open(fileobj=io.BytesIO(data_blob), mode="r:gz") as t:
+        _ko = next((t.extractfile(m).read() for m in t.getmembers() if m.name.lstrip("./") == _hbr + "earc_route-4.4.ko"), b"")
+    _want = json.loads((ROOT / "vendor/earc_route/out/earc_route-4.4.json").read_text())["moduleSha256"]
+    check(_hashlib.sha256(_ko).hexdigest() == _want,
+          "hbr/earc_route-4.4.ko is the build recorded in vendor/earc_route/out/earc_route-4.4.json")
+    check(modes.get("nativejelly-hbr.sh") == 0o755, "the HBR installer is executable in the archive")
     check(modes.get("nativejelly") == 0o755,
           "native app is executable by its jailed runtime uid")
     check(modes.get("sentry-crash") == 0o755,

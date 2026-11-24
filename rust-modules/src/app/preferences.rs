@@ -65,6 +65,15 @@ pub(super) fn execute(command: PreferenceCmd) {
                 nj_machine::idle::invalidate();
             });
         }
+        // Runs the installer as root through Homebrew Channel (seconds, not milliseconds): its own
+        // thread, never the storage worker. Success is the installer's own result line.
+        PreferenceCmd::HbrSupport { install, reply } => {
+            nj_base::task::spawn_small("hbr support", move || {
+                let (action, done) = if install { ("install", "hbr: active") } else { ("remove", "hbr: removed") };
+                let _ = reply.send(nj_platform::tv::hbr_support(action).is_ok_and(|line| line == done));
+                nj_machine::idle::invalidate();
+            });
+        }
         PreferenceCmd::EpisodeNavigation { value, reply } => {
             let _ = nj_base::storage_worker::submit_retained(move || {
                 let _ = reply.send(crate::route::set_episode_navigation(value));

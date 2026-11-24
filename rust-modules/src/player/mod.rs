@@ -25,6 +25,7 @@ pub(crate) mod ass_perf; // worker/render cost, publication/upload bytes and job
 pub(crate) mod ass; // pinned libass worker and immutable rendered frames
 pub(crate) mod ass_source; // bounded embedded scripts and subtitle presentation clock
 pub(crate) mod engine;
+pub(crate) mod es_carrier; // lossless audio to a receiver: DTS-HD/TrueHD bursts swapped into LG's DD+ pass-through route
 pub(crate) mod lifecycle;
 pub(crate) mod machine;
 pub(crate) mod native_stall; // the pre-picture watchdog for a swallowed native surround Opus feed

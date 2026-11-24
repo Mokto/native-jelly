@@ -25,22 +25,53 @@ Disabled needs no confirmation.
 
 Audio passthrough remains the television's Digital Sound Output setting.
 
-## DTS passthrough
+## Lossless audio to receiver
 
-**Playback → DTS passthrough** (off by default, saved on this television) sends a DTS track's
-core to an external receiver unconverted. Many sets have no DTS decoder: declared as `DTS`, a
-webOS 6 C1 refuses the Load with `type=18 num=601` before any picture. With the setting on and
-`com.webos.service.audio/getSoundOutput` reporting `external_arc` or `external_optical`, the app
-packs each 48 kHz DTS core frame into an IEC 61937 burst (as FFmpeg's `spdif` muxer does) and
-declares the stream `PCM` with `pcmInfo` S16LE stereo 48 (kHz). LG allocates a PCM decoder
-instead, and a receiver set to passthrough sees DTS. Any other sound output keeps the setting
-inert, because the bursts are noise on the TV's own speakers.
+**Playback → Lossless audio to receiver** (off by default, saved on this television; persisted as
+`dts_passthrough`) sends DTS, DTS-HD and Dolby TrueHD to an external receiver unconverted. Many sets
+have no DTS decoder (a webOS 6 C1 refuses a `DTS` Load with `type=18 num=601`) and none plays TrueHD
+from an app. The setting is used only while `com.webos.service.audio/getSoundOutput` reports
+`external_arc` or `external_optical`: on the TV's speakers the bursts would be noise.
 
-Only the 5.1 core is sent: DTS-HD MA and DTS:X extensions are dropped, so the receiver shows
-DTS, not DTS-HD MA. The setting admits DTS up to 8 channels for the same reason. A core that
-does not fit the burst period (1536 kb/s at 512 samples per frame needs 2044 of 2040 bytes) is
-refused before any audio is fed, so the open recovery converts it on the server. Full DTS-HD MA
-or TrueHD would need an 8-channel 192 kHz PCM input; this player's PCM input is stereo 48 kHz.
+Three routes, chosen per title, best first:
+
+| Route | Carries | Needs |
+|---|---|---|
+| DD+ carrier, HBR | DTS-HD MA and DTS:X at full rate, TrueHD and Atmos (MAT) | **Atmos, TrueHD and DTS:X (root)** installed |
+| DD+ carrier, 192 kHz | DTS-HD MA up to ~6 Mb/s per frame (larger frames send their core) | a receiver LG passes Dolby Digital Plus through to |
+| PCM core | the DTS 5.1 core | any receiver on ARC/eARC or optical |
+
+Without HBR, TrueHD keeps the on-TV AC-3 conversion (`ff_audio_convert.rs`).
+
+**The DD+ carrier** (`player/es_carrier.rs`). LG's own audio library (liblxa, with libkadaptor and
+libpf) runs inside this process, and for a Dolby Digital Plus title it packs each E-AC-3 frame into
+an IEC 61937 burst and writes it into LG's ES renderer (`ioctl(fd, 0x40285207, arg)`, word 8 = 1),
+from where LG's eARC pass-through sends it untouched. The app declares a DTS or TrueHD title as
+`AC3 PLUS`, feeds a silent 384-byte E-AC-3 frame every 32 ms on contiguous timestamps, and packs the
+real track into IEC 61937 bursts: DTS-HD as type IV (three 512-sample frames per carrier frame),
+TrueHD as MAT (type 22, a port of FFmpeg 9.0's `spdif` muxer, matched byte for byte in a test).
+`src/es_swap.c` exports `ioctl` from the executable, so libkadaptor's call lands there first and
+each ES write is pointed at the next queued chunk. LG keeps timing, A/V sync, pause and seek exactly
+as for a DD+ title. A write the renderer refuses (`-1`, buffer full) is retried by liblxa with the
+same chunk. If LG makes no ES write by the 75th picture, its DD+ route is not in pass-through on
+this output: the carrier is switched off for the app run and the title reloads at the same position
+on the PCM core or the AC-3 converter.
+
+**HBR** (8 channels at 192 kHz, 4x the stereo carrier) is what TrueHD and full-rate DTS-HD need. LG
+never opens it for an app, so on rooted TVs **Atmos, TrueHD and DTS:X (root)** installs the
+`earc_route` kernel module (`vendor/earc_route/README.md`, GPL-2.0-only, shipped beside the app in
+`hbr/`). The row runs `hbr/nativejelly-hbr.sh` as root through Homebrew Channel's `exec` service: it
+copies the module beside Homebrew Channel's boot hooks (`/var/lib/webosbrew/init.d`) so it loads at
+every start, loads it through dts_restore_plus's loader (which refuses kernels the build does not
+match; the module also checks every instruction it hooks), sets its HBR parameters and puts its
+lease node in each Native Jelly sandbox (`/var/palm/jail/<app id>/dev/earc_route`). During a
+playback the app writes `2` to that node; while it is held the module makes LG configure the eARC
+link as 8 channels at 192 kHz, and the app writes 4x larger bursts. The node is opened only when
+`/sys/dev/char/<major>:<minor>/uevent` names `earc_route`, because its number changes per load.
+Tested on an LG C1 (webOS 6, firmware 03.53.45) with a Sony STR-DN1080: DTS-HD MA, DTS:X and
+TrueHD Atmos with picture, surviving a reboot. The row shows only while lossless audio is on; it
+reads the installed state from the lease node, and choosing **Not installed** removes the boot hook
+(the module stays loaded, switched off, until the next reboot).
 
 ## Jellyfin user preferences
 

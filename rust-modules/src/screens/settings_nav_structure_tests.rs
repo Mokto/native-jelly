@@ -119,13 +119,15 @@ fn every_root_nav_item_pushes_exactly_its_dest_signed_in() {
 fn every_playback_field_pushes_its_picker() {
     let _g = nj_base::testlock::serial();
     let _sess = scratch_session("nav-structure-playback");
+    // Lossless audio on, so its rooted-TV companion row is listed and reachable too.
+    assert!(crate::route::set_dts_passthrough(crate::catalog::session::DtsPassthrough::LADDER.into_iter().find(|v| v.is_on()).unwrap()));
     let items = super::super::preferences::nav_items_for_test(super::super::preferences::Kind::Playback, None);
     assert_eq!(items.iter().map(|(_, d)| *d).collect::<Vec<_>>(),
         [SettingsPage::Picker(PickerKind::Quality), SettingsPage::Picker(PickerKind::DirectPlay),
          SettingsPage::Picker(PickerKind::SubtitleSize), SettingsPage::Picker(PickerKind::SubtitlePosition),
          SettingsPage::Picker(PickerKind::NextEpisode), SettingsPage::Picker(PickerKind::SkipInterval),
          SettingsPage::Picker(PickerKind::InstantDpadSeeking), SettingsPage::Picker(PickerKind::EpisodeNavigation),
-         SettingsPage::Picker(PickerKind::DtsPassthrough)]);
+         SettingsPage::Picker(PickerKind::DtsPassthrough), SettingsPage::Picker(PickerKind::HbrSupport)]);
     assert_every_nav_item_pushes_exactly_its_dest("playback", &items, &|| consent_opened(SettingsPage::Playback));
 }
 

@@ -1,4 +1,8 @@
 {
-  "settings.playback.dts_passthrough": "Перадача DTS",
-  "settings.playback.dts_passthrough.copy": "Перадае дарожкі DTS без змен на AV-рэсівер або саўндбар, падлучаны праз HDMI ARC/eARC або оптыку; ён іх і дэкадуе. DTS-HD MA і DTS:X прайграюцца як ядро DTS 5.1. Працуе, толькі пакуль гук тэлевізара ідзе на гэты выхад; выберыце для лічбавага выхаду гуку рэжым «Скразны канал»."
+  "settings.playback.dts_passthrough": "Гук без страт на рэсівер",
+  "settings.playback.dts_passthrough.copy": "Перадае дарожкі DTS і Dolby TrueHD без змен на AV-рэсівер або саўндбар; ён іх і дэкадуе. Праз HDMI ARC/eARC DTS-HD MA ідзе ўнутры скразной перадачы Dolby Digital Plus тэлевізара; для TrueHD, DTS:X і DTS-HD MA з высокім бітрэйтам патрэбна яшчэ налада Atmos, TrueHD і DTS:X ніжэй. Інакш, а таксама праз оптыку, DTS прайграецца як ядро 5.1, а TrueHD — як Dolby Digital. Працуе, толькі пакуль гук тэлевізара ідзе на гэты выхад; выберыце для лічбавага выхаду гуку рэжым «Скразны канал».",
+  "settings.playback.hbr_support": "Atmos, TrueHD і DTS:X (root)",
+  "settings.playback.hbr_support.copy": "На тэлевізары з root-доступам і Homebrew Channel: усталёўвае модуль ядра, які дазваляе перадаваць 8-канальны гук з высокім бітрэйтам праз HDMI eARC — для Dolby TrueHD і Atmos, DTS:X і DTS-HD MA без абмежаванняў. Загружаецца зноў пры кожным запуску. Праверана на LG C1 (webOS 6); іншыя тэлевізары бяспечна адмаўляюцца.",
+  "settings.playback.hbr_support.installed": "Усталявана",
+  "settings.playback.hbr_support.removed": "Не ўсталявана"
 }

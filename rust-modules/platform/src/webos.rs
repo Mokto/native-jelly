@@ -41,6 +41,7 @@ pub mod caps;
 pub mod toast;
 pub mod volume;
 pub mod sound_output;
+pub mod hbr; // HBR audio support on rooted sets, through Homebrew Channel's exec service
 
 const OS_INFO: &str = "/var/run/nyx/os_info.json";
 

@@ -444,6 +444,19 @@ handler and is used to initialise the ARM unwind machinery outside signal contex
 
 ---
 
+### 2.7 HBR audio kernel module — shipped beside the app, not linked
+
+| Shipped file | Upstream | Licence |
+|---|---|---|
+| `hbr/earc_route-4.4.ko`, `hbr/earc-route-load.sh` | [dts_restore_plus](https://github.com/josippapez/dts_restore_plus) `webos25/kmod` at `e42c98eb6ac793bdccab565501384dadb0bd6720`, with Native Jelly's patch | GPL-2.0-only |
+
+A separate program: a Linux kernel module and its loader, installed only when the owner of a rooted
+television chooses to from Settings (`hbr/nativejelly-hbr.sh`, through Homebrew Channel), never
+linked into or loaded by `nativejelly`. Its complete corresponding source, its build instructions,
+its own `LICENSE` and `NOTICE` (derived from Glasshouse's native-route and lg-g5-dts, both
+GPL-2.0-only) and the patch are in `vendor/earc_route/` of the source tree for this release. The
+GPL-2.0 text is supplied at `licenses/GPL-2.0.txt`.
+
 ## 3. Dynamically linked, not redistributed
 
 The libraries below are part of your television's software. This package contains no copy of
@@ -518,6 +531,7 @@ runtime notices listed below:
 | `licenses/libass-ISC.txt` | libass (§1.2), including its copyright notice |
 | `licenses/FreeType.txt` | FreeType's elected FTL and contributed module notices (§1.2) |
 | `licenses/HarfBuzz-Old-MIT.txt` | HarfBuzz and its copyright holders (§1.2) |
+| `licenses/GPL-2.0.txt` | earc_route, the HBR kernel module and its loader (§2.7) — GNU General Public License, version 2 |
 
 `OFL.txt` (SIL Open Font License 1.1, for **Inter, Noto Sans CJK KR and the Noto Sans script faces** — §2.3) already ships at
 the root of this package. Keep it there; do not add a second copy under `licenses/`, and do not

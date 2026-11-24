@@ -7,6 +7,13 @@ from pathlib import Path
 import tarfile
 import tempfile
 
+import hashlib
+import json
+
+KERNEL_MODULE = 'earc_route-4.4.ko'
+KERNEL_MODULE_SHA256 = json.loads(
+    (Path(__file__).resolve().parent.parent / 'vendor/earc_route/out/earc_route-4.4.json').read_text())['moduleSha256']
+
 spec = importlib.util.spec_from_file_location('evidence', Path(__file__).with_name('check-link-evidence.py'))
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
@@ -36,6 +43,12 @@ def check(ipk, evidence):
             blob = t.extractfile(member).read()
             if blob[:4] != b'\x7fELF': continue
             name = Path(member.name).name
+            if name == KERNEL_MODULE:
+                # Not linked by our toolchain: an AArch64 kernel module vendored with its build
+                # record (vendor/earc_route), accepted only as that exact build.
+                if hashlib.sha256(blob).hexdigest() != KERNEL_MODULE_SHA256:
+                    raise ValueError(f'{name} is not the build recorded in vendor/earc_route/out')
+                continue
             if name in found: raise ValueError('duplicate ELF basename')
             found.add(name)
             elf = Path(d) / name; elf.write_bytes(blob)

@@ -892,6 +892,9 @@ pkg/nativejelly-storage: LICENSE $(STORAGE_INPUTS) rust-modules/Cargo.toml rust-
 # this to -E/--export-dynamic: no other executable-private symbol is part of the native ABI.
 SMP_CALLBACK_HOOK = _ZN17StarfishMediaAPIs20callbackFunctionHookEixPKc
 SMP_INTERPOSER_LDFLAG = -Wl,--export-dynamic-symbol=$(SMP_CALLBACK_HOOK)
+# src/es_swap.c exports ioctl so libkadaptor's ES-renderer writes reach
+# rust-modules/src/player/es_carrier.rs (lossless audio to a receiver).
+SMP_INTERPOSER_LDFLAG += -Wl,--export-dynamic-symbol=ioctl
 # --gc-sections: this link is gcc's, not rustc's. rustc passes --gc-sections itself when IT links an
 # executable (which is why pkg/nativejelly-storage above never needed the flag), but here the Rust
 # code arrives as a finished staticlib, so without the flag every section of every archive member
@@ -1064,6 +1067,10 @@ SUBS_FONT_FILES = $(sort $(wildcard pkg/fonts/subs/*.ttf)) pkg/fonts/subs/manife
 # under the threshold — so the repository advertised "Other" rather than MIT, misrepresenting the
 # terms in the one place most people look. Splitting the file must not un-ship the reservation.
 LICENSE_FILES = LICENSE LICENSING.md TRADEMARKS.md $(wildcard licenses/*.txt)
+# HBR audio support for rooted TVs (vendor/earc_route/README.md): a GPL-2.0-only kernel module, its
+# loader and the installer Settings runs through Homebrew Channel. Shipped in hbr/, never loaded by
+# the app itself.
+HBR_FILES = vendor/earc_route/out/earc_route-4.4.ko vendor/earc_route/earc-route-load.sh hbr/nativejelly-hbr.sh
 
 # The derived descriptor for a flavoured install, written by the SAME transform that packages it
 # (ci/flavor.py, through ci/mkipk.py) so `make deploy`'s scp'd appinfo and the .ipk's staged one
@@ -1110,6 +1117,9 @@ deploy: pkg/nativejelly pkg/nativejelly-storage $(FFMPEG_STAGED) $(SENTRY_NATIVE
 	# that is not fast, and this is ~2.1 MB on every deploy. Unconditional, like the fonts —
 	# a CHANGED library must be able to reach the TV.
 	$(SCP) $(FFMPEG_STAGED) tv:$(APPDIR)/
+	# HBR support files, beside the app as `ipk` ships them (Settings installs them from there).
+	$(SSH) 'mkdir -p $(APPDIR)/hbr'
+	$(SCP) $(HBR_FILES) tv:$(APPDIR)/hbr/
 	# The native crash daemon is a separate process so it can read the dying process's stack while
 	# the signal handler keeps that process parked. It has no network transport of its own. Stage
 	# then rename: an already-running app keeps the old daemon executable open, and scp directly to
@@ -1740,6 +1750,7 @@ ipk: pkg/nativejelly pkg/nativejelly-storage $(APPINFO) release-guard
 	rm -rf ipkroot/data/usr && mkdir -p $(STAGE)/licenses
 	cp $(APP_FILES) $(STAGE)/
 	mkdir -p $(STAGE)/$(SUBS_FONT_DIR) && cp $(SUBS_FONT_FILES) $(STAGE)/$(SUBS_FONT_DIR)/
+	mkdir -p $(STAGE)/hbr && cp $(HBR_FILES) $(STAGE)/hbr/ && chmod 755 $(STAGE)/hbr/nativejelly-hbr.sh
 	cp $(LICENSE_FILES) $(STAGE)/licenses/
 	@# Strip the STAGED copy only, never pkg/nativejelly. ~2.4 MB of .symtab+.strtab (30% of the
 	@# download, on a device whose app partition is 615 MB total and shared with every other app).

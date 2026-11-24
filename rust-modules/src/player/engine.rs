@@ -1681,11 +1681,33 @@ fn start_bufferfeed_inner(
                 SHARED.demux_failed.store(true, Ordering::Release);
                 return Err(crate::route::RouteStartResult::StartFailed);
             };
+            // Lossless audio: TrueHD as MAT bursts on the HBR carrier instead of the AC-3 converter; only
+            // when the earc_route lease is granted (MAT needs the 8-channel link).
+            let caps = crate::route::attempt_caps(ps);
+            let truehd = converted
+                && nj_platform::devcaps::audio_codec_id(&codec).as_ref() == "truehd"
+                && caps.dts_passthrough
+                && nj_platform::devcaps::sound_output::latest().is_receiver()
+                && crate::player::es_carrier::available()
+                && crate::player::es_carrier::hbr_available()
+                && crate::player::es_carrier::set_on(true);
+            if truehd {
+                crate::player::es_carrier::set_truehd();
+                log("start_bufferfeed: TrueHD as MAT bursts over the DD+ pass-through carrier (HBR)");
+            }
+            let converted = converted && !truehd;
             if converted {
                 log(&format!("start_bufferfeed: {codec} audio is converted to AC3 on the television"));
             }
-            dts_iec = ac == "DTS" && dts_iec_ready(&crate::route::attempt_caps(ps));
-            let ac = if dts_iec { "PCM" } else { ac };
+            dts_iec = ac == "DTS" && dts_iec_ready(&caps);
+            // Lossless audio: DTS-HD over the DD+ carrier (es_carrier) replaces the PCM core carrier;
+            // `pump` falls back to the core if LG's DD+ route turns out not to be in pass-through.
+            let carrier = dts_iec && crate::player::es_carrier::available();
+            let hbr = if truehd { true } else { crate::player::es_carrier::set_on(carrier) };
+            if carrier {
+                log(&format!("start_bufferfeed: DTS-HD over the DD+ pass-through carrier ({})", if hbr { "HBR" } else { "192 kHz" }));
+            }
+            let ac = if carrier || truehd { "AC3 PLUS" } else if dts_iec { "PCM" } else { ac };
             SHARED.dg_load_a.store(diagnostic, Ordering::Relaxed);
             audio_declared = ac;
             // The sink envelope — `adaptiveStreaming`'s maxWidth/maxHeight/maxFrameRate — used
@@ -2261,6 +2283,9 @@ pub(crate) fn suspend_bufferfeed_if_attempt(
 /// stop: preserve the playback session so start_bufferfeed can restart the SAME item — skip
 /// the "stopped" timeline scrobble, the server transcode stop, and the URL clear.
 fn teardown(ps: &mut crate::route::PlaybackSession, pa: &mut super::adapter::PlayerAdapter, for_reload: bool) {
+    // Lossless audio: release the earc_route lease and stop swapping as soon as playback ends, so the
+    // HBR hooks never outlive the title (a reload re-arms them in start_bufferfeed).
+    crate::player::es_carrier::set_on(false);
     // A start still queued behind the previous object's `Unload` is the playback this stop ends.
     // Always sent: the machine owns whether anything is queued (a no-op otherwise), and no copy of
     // that fact in the session can go stale across a landing that replaced the session.

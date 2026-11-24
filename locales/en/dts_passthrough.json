@@ -1,10 +1,26 @@
 {
   "settings.playback.dts_passthrough": {
-    "value": "DTS passthrough",
+    "value": "Lossless audio to receiver",
     "description": "Playback preference title: send DTS audio unchanged to an external receiver."
   },
   "settings.playback.dts_passthrough.copy": {
-    "value": "Send DTS soundtracks unchanged to an AV receiver or soundbar on HDMI ARC/eARC or optical, which decodes them. DTS-HD MA and DTS:X play as their DTS 5.1 core. Used only while the TV's sound goes to that output; set Digital Sound Output to Pass Through.",
+    "value": "Send DTS and Dolby TrueHD soundtracks unchanged to an AV receiver or soundbar, which decodes them. On HDMI eARC/ARC, DTS-HD MA travels inside the TV's Dolby Digital Plus pass-through; TrueHD, DTS:X and high-bitrate DTS-HD MA also need the Atmos, TrueHD and DTS:X setting below. Otherwise, and on optical, DTS plays as its 5.1 core and TrueHD as Dolby Digital. Used only while the TV's sound goes to that output; set Digital Sound Output to Pass Through.",
     "description": "Playback preference explanation."
+  },
+  "settings.playback.hbr_support": {
+    "value": "Atmos, TrueHD and DTS:X (root)",
+    "description": "Playback preference title: install HBR (8-channel high-bitrate) audio support on a rooted TV."
+  },
+  "settings.playback.hbr_support.copy": {
+    "value": "On a rooted TV with Homebrew Channel: installs a kernel module that lets the TV send 8-channel high-bitrate audio over HDMI eARC, for Dolby TrueHD and Atmos, DTS:X and full-rate DTS-HD MA. It is loaded again at every start. Tested on an LG C1 (webOS 6); other TVs refuse it safely.",
+    "description": "Playback preference explanation."
+  },
+  "settings.playback.hbr_support.installed": {
+    "value": "Installed",
+    "description": "HBR audio support value: installed and loaded."
+  },
+  "settings.playback.hbr_support.removed": {
+    "value": "Not installed",
+    "description": "HBR audio support value: not installed."
   }
 }
