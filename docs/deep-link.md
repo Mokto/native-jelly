@@ -26,6 +26,10 @@ keys (`tmdbId`, `mediaType`, `title`) are ignored.
 - The link waits for Home (behind sign-in, the who's-watching screen or a first-run question)
   and is dropped after 45 seconds.
 - Anything that is not a GUID is refused before it reaches the catalog or the log.
-- The app declares `handlesRelaunch: false`, so a launch while it is running restarts it.
+- A launch while the app is running arrives as SAM's `relaunch` event. LG's SDL would drop its
+  `parameters`, so `src/main.c` subscribes to `registerApp` itself (through `libhelpers`, as SDL
+  does) and sets `SDL_HINT_WEBOS_REGISTER_APP` so SDL skips its own; the link then waits for Home
+  like a cold launch. On webOS 6 and later `argv[1]` is the same lifecycle message, with the
+  params under `parameters`.
 
 CleanYourTV's *Jellyfin continue watching* add-on sends `itemId` and `serverId`.

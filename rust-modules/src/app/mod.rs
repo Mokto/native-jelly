@@ -156,6 +156,7 @@ extern "C" {
     fn SDL_PollEvent(event: *mut c_void) -> c_int;
     fn SDL_PushEvent(event: *const c_void) -> c_int;
     fn SDL_GL_SwapWindow(win: *mut c_void);
+    fn SDL_RaiseWindow(win: *mut c_void);
     fn SDL_Quit();
     // The system on-screen keyboard. A PLAIN link, not `dynlib!`, and the rule in `dynlib.rs` is
     // why: that module is for libraries whose SONAME moves, and this is stock public SDL2 API —

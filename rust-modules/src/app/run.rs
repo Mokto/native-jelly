@@ -2308,6 +2308,13 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
             menu_play_tick(&mut app.player.session, &mut app.adapters.player,
                 &mut app.pages, &mut app.bridge, &mut app.menu_play_await, fr.now);
         }
+        if super::deep_link::take_relaunch() {
+            // What LG's SDL did on a relaunch before main.c took its registration over.
+            unsafe { SDL_RaiseWindow(app.win) };
+            if let Some(link) = super::deep_link::take_launch() {
+                app.deep_link = Some(link);
+            }
+        }
         if app.deep_link.is_some() {
             super::deep_link::tick(&mut app.deep_link, &mut app.pages, &mut app.bridge, fr.now);
         }

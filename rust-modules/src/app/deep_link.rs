@@ -24,6 +24,7 @@
 use super::bridge::{AppHost, Bridge};
 use crate::screens::registry::AppArg;
 use crate::ui::dispatch::Dispatcher;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 /// How long a link waits for Home before it is dropped.
@@ -54,6 +55,8 @@ pub(crate) struct Pending {
 }
 
 static LAUNCH: Mutex<Option<DeepLink>> = Mutex::new(None);
+/// SAM relaunched the running app; the loop raises the window and arms any link in [`LAUNCH`].
+static RELAUNCHED: AtomicBool = AtomicBool::new(false);
 
 /// A Jellyfin GUID in any of its spellings, normalized; `None` for anything else.
 fn guid(s: &str) -> Option<String> {
@@ -98,13 +101,68 @@ pub extern "C" fn nj_launch_params(params: *const std::os::raw::c_char) {
         return;
     }
     // SAFETY: `main.c` passes a NUL-terminated `argv` entry that outlives this call.
-    let s = unsafe { std::ffi::CStr::from_ptr(params) }.to_string_lossy();
-    if let Some(link) = parse(&s) {
+    stash(&unsafe { std::ffi::CStr::from_ptr(params) }.to_string_lossy());
+}
+
+fn stash(params: &str) {
+    if let Some(link) = parse(params) {
         nj_base::eventlog::log("deep link: launched with a link");
         if let Ok(mut g) = LAUNCH.lock() {
             *g = Some(link);
         }
     }
+}
+
+/// What `main.c` should do about one of SAM's lifecycle messages.
+#[derive(Debug, PartialEq, Eq)]
+enum Lifecycle {
+    Ignore,
+    Relaunch,
+    Close,
+}
+
+fn lifecycle(payload: &str) -> Lifecycle {
+    let v: serde_json::Value = match serde_json::from_str(payload) {
+        Ok(v) => v,
+        Err(_) => return Lifecycle::Ignore,
+    };
+    if v.get("returnValue") == Some(&serde_json::Value::Bool(false)) {
+        nj_base::eventlog::log("lifecycle: registerApp refused");
+    }
+    match v.get("event").and_then(|e| e.as_str()) {
+        Some("relaunch") => Lifecycle::Relaunch,
+        Some("close") => Lifecycle::Close,
+        _ => Lifecycle::Ignore,
+    }
+}
+
+/// SAM's `registerApp` subscription, which `main.c` takes over from LG's SDL because SDL drops a
+/// relaunch's `parameters`. Called on libhelpers' thread; returns 2 for `close` (main.c quits).
+#[no_mangle]
+pub extern "C" fn nj_lifecycle(payload: *const std::os::raw::c_char) -> std::os::raw::c_int {
+    if payload.is_null() {
+        return 0;
+    }
+    // SAFETY: libhelpers passes the message's NUL-terminated payload, valid for this call.
+    let s = unsafe { std::ffi::CStr::from_ptr(payload) }.to_string_lossy();
+    match lifecycle(&s) {
+        Lifecycle::Relaunch => {
+            nj_base::eventlog::log("lifecycle: relaunch");
+            stash(&s);
+            RELAUNCHED.store(true, Ordering::Release);
+            1
+        }
+        Lifecycle::Close => {
+            nj_base::eventlog::log("lifecycle: close");
+            2
+        }
+        Lifecycle::Ignore => 0,
+    }
+}
+
+/// Whether SAM relaunched the app since the last call (once per relaunch).
+pub(crate) fn take_relaunch() -> bool {
+    RELAUNCHED.swap(false, Ordering::Acquire)
 }
 
 /// The link this process was launched with, once (the boot arms it into `App`).
@@ -267,6 +325,16 @@ mod tests {
         );
         assert_eq!(parse(&argv), Some(DeepLink { item: Some(A.into()), user: Some(U1.into()), server: None }));
         assert_eq!(parse(r#"{"event":"launch","parameters":{}}"#), None, "a plain launch is no link");
+    }
+
+    #[test]
+    fn sorts_sams_lifecycle_messages() {
+        let relaunch = format!(r#"{{"event":"relaunch","appId":"x","parameters":{{"itemId":"{A}"}}}}"#);
+        assert_eq!(lifecycle(&relaunch), Lifecycle::Relaunch);
+        assert_eq!(lifecycle(r#"{"event":"close","reason":"memoryReclaim"}"#), Lifecycle::Close);
+        for other in [r#"{"returnValue":true,"event":"registered"}"#, r#"{"returnValue":false}"#, "x", ""] {
+            assert_eq!(lifecycle(other), Lifecycle::Ignore, "{other}");
+        }
     }
 
     #[test]
