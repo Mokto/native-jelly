@@ -33,6 +33,7 @@ extern int nj_sentry_spool_external(const char *path); /* Sentry daemon's spool-
 extern void nj_launch_params(const char *params);      /* webOS launch params (argv[1]) -> deep link */
 extern void nj_crash_write_image_marker(int fd); /* identify this binary in the append-only log */
 extern int nj_lifecycle(const char *payload);    /* SAM lifecycle message -> 2 on close */
+extern int nj_webos_major(void);                 /* webOS major release from nyx, 0 if unknown */
 extern int SDL_PushEvent(void *event);
 
 /* `HContext` from the NDK's webos-helpers/libhelpers.h. */
@@ -46,13 +47,18 @@ typedef struct {
 } HContext;
 static const char *(*h_message)(void *msg);
 
+/* Backstop only: the normal exit is `nj_run` returning once SDL_QUIT has run the app's own
+ * shutdown (it waits for the stop scrobble and the player's release, both bounded and both
+ * longer than the 1 s LG's SDL allows). Hitting this means the quit path hung. */
+#define CLOSE_BACKSTOP_SECS 5
+
 static void *force_exit(void *arg) {
     (void)arg;
-    sleep(1);
+    sleep(CLOSE_BACKSTOP_SECS);
     _exit(0);
 }
 
-/* What LG's SDL does on `close`: post SDL_QUIT and exit a second later regardless. */
+/* What LG's SDL does on `close`, except that the forced exit waits for the app's own quit path. */
 static bool on_lifecycle(void *sh, void *msg, void *ctx) {
     (void)sh; (void)ctx;
     const char *payload = h_message(msg);
@@ -68,8 +74,15 @@ static bool on_lifecycle(void *sh, void *msg, void *ctx) {
 /* LG's SDL subscribes to SAM's registerApp itself, but on `relaunch` it only raises the window
  * and drops the `parameters`, so a launcher link sent to the running app was lost. Subscribe
  * through the same libhelpers SDL uses, with SDL's payload, and tell SDL to skip its own; if
- * anything here fails SDL registers as before. */
+ * anything here fails SDL registers as before.
+ *
+ * Only on webOS 6 and later: the libhelpers symbols, the HContext layout and SDL's honouring of
+ * the hint are proven on a C1 (webOS 6.5.3) and not on webOS 4.x, where an SDL that ignored the
+ * hint would register twice. Elsewhere a launch is `argv[1]` only. */
+#define TAKEOVER_MIN_WEBOS 6
+
 static void register_lifecycle(void) {
+    if (nj_webos_major() < TAKEOVER_MIN_WEBOS) return;
     static HContext ctx = { .callback = on_lifecycle, .multiple = 1 };
     void *h = dlopen("libhelpers.so.2", RTLD_NOW);
     if (!h) return;

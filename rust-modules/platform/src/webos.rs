@@ -78,6 +78,15 @@ fn parse(s: &str) -> Info {
     }
 }
 
+/// The major release, for `src/main.c`, which has to decide before [`probe`] runs. 0 when the
+/// file is missing or unparseable, which callers must treat as "not proven".
+#[no_mangle]
+pub extern "C" fn nj_webos_major() -> std::os::raw::c_int {
+    std::fs::read_to_string(OS_INFO)
+        .map(|s| parse(&s).major as std::os::raw::c_int)
+        .unwrap_or(0)
+}
+
 /// Read it once and log it. Called at boot; safe to call when the file does not exist.
 pub fn probe() {
     let info = match std::fs::read_to_string(OS_INFO) {
